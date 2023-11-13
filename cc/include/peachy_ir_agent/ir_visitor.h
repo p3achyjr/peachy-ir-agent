@@ -5,8 +5,11 @@
 
 namespace peachyir {
 
-#define DELEGATE(CLASS) \
-  return visitor()->visit##CLASS(static_cast<const CLASS&>(node))
+#define VISIT(METHOD, CLASS) \
+  return visitor()->visit##METHOD(static_cast<const CLASS&>(node))
+
+#define COMPLETE(METHOD, CLASS) \
+  return visitor()->complete##METHOD(static_cast<const CLASS&>(node))
 
 /*
  * Visitor Base Class.
@@ -20,7 +23,7 @@ namespace peachyir {
  * The user can also override the visit##Node functions to contain traversal
  * logic, and dummy-out the visit$ functions.
  */
-template <typename VisitorT, typename RetT = void>
+template <typename VisitorT>
 class IrVisitor {
  public:
   // Generic visit method for vector fields.
@@ -31,157 +34,273 @@ class IrVisitor {
     }
   }
 
+  // Delegation for pointer-based access.
+  template <typename NodeT>
+  void visit(std::shared_ptr<NodeT> node) {
+    visitor()->visit(*node);
+  }
+
   // Base visit methods that define traversal logic.
-  void visit(const FunctionNode& fn) {
-    visitor()->visitFunction(fn);
-    visit(fn.args());
-    visit(fn.defines());
-    visitor()->visit(*fn.body());
+  void visit(const FunctionNode& node) {
+    visitor()->visitFunction(node);
+    visitor()->visit(node.args());
+    visitor()->visit(node.defines());
+    visitor()->visit(node.body());
+    visitor()->completeFunction(node);
   }
 
-  void visit(const BinopNode& b) {
-    visitor()->visitBinop(b);
-    visitor()->visit(*b.lhs());
-    visitor()->visit(*b.rhs());
+  void visit(const DefineNode& node) {
+    visitor()->visitDefine(node);
+    visitor()->completeDefine(node);
   }
 
-  void visit(const UnopNode& u) {
-    visitor()->visitUnop(u);
-    visitor()->visit(*u.expr());
+  void visit(const BinopNode& node) {
+    visitor()->visitBinop(node);
+    visitor()->visit(node.lhs());
+    visitor()->visit(node.rhs());
+    visitor()->completeBinop(node);
   }
 
-  void visit(const VarRefNode& var_ref) {
-    visitor()->visitVarRef(var_ref);
-    visitor()->visit(*var_ref.var());
+  void visit(const UnopNode& node) {
+    visitor()->visitUnop(node);
+    visitor()->visit(node.expr());
+    visitor()->completeUnop(node);
   }
 
-  void visit(const SeqNode& seq) {
-    visitor()->visitSeq(seq);
-    visit(seq.stmts());
+  void visit(const VarExprNode& node) {
+    visitor()->visitVarExpr(node);
+    visitor()->visit(node.var_ref());
+    visitor()->completeVarExpr(node);
   }
 
-  void visit(const NopNode& nop) { visitor()->visitNop(nop); }
-
-  void visit(const LetNode& let) {
-    visitor()->visitLet(let);
-    visitor()->visit(*let.var_decl());
-    visitor()->visit(*let.expr());
-    visitor()->visit(*let.scope());
+  void visit(const SeqNode& node) {
+    visitor()->visitSeq(node);
+    visit(node.stmts());
+    visitor()->completeSeq(node);
   }
 
-  void visit(const AsgnNode& asgn) {
-    visitor()->visitAsgn(asgn);
-    visitor()->visit(*asgn.var_loc());
-    visitor()->visit(*asgn.expr());
+  void visit(const NopNode& node) {
+    visitor()->visitNop(node);
+    visitor()->completeNop(node);
   }
 
-  void visit(const LoopNode& loop) {
-    visitor()->visitLoop(loop);
-    visitor()->visit(*loop.induction_var());
-    visitor()->visit(loop.body());
+  void visit(const LetNode& node) {
+    visitor()->visitLet(node);
+    visitor()->visit(node.var_decl());
+    visitor()->visit(node.expr());
+    visitor()->visit(node.scope());
+    visitor()->completeLet(node);
   }
 
-  void visit(const ParLoopNode& ploop) {
-    visitor()->visitParLoop(ploop);
-    visitor()->visit(*ploop.induction_var());
-    visitor()->visit(ploop.body());
+  void visit(const AsgnNode& node) {
+    visitor()->visitAsgn(node);
+    visitor()->visit(node.var_loc());
+    visitor()->visit(node.expr());
+    visitor()->completeAsgn(node);
   }
 
-  void visit(const VarLocNode& var_loc) {
-    visitor()->visitVarLoc(var_loc);
-    visitor()->visit(*var_loc.var());
+  void visit(const LoopNode& node) {
+    visitor()->visitLoop(node);
+    visitor()->visit(node.induction_var());
+    visitor()->visit(node.body());
+    visitor()->completeLoop(node);
   }
 
-  void visit(const VarDeclNode& var_decl) {
-    visitor()->visitVarLoc(var_decl);
-    visitor()->visit(*var_decl.var());
+  void visit(const ParLoopNode& node) {
+    visitor()->visitParLoop(node);
+    visitor()->visit(node.induction_var());
+    visitor()->visit(node.body());
+    visitor()->completeParLoop(node);
   }
 
-  void visit(const CriticalSectionNode& cs) {
-    visitor()->visitCriticalSection(cs);
-    visit(cs.critical_writes());
+  void visit(const CriticalSectionNode& node) {
+    visitor()->visitCriticalSection(node);
+    visitor()->visit(node.critical_writes());
+    visitor()->completeCriticalSection(node);
   }
 
-  RetT visit(const IrNode& node) {
+  void visit(const ScalarVarNode& node) {
+    visitor()->visitScalarVar(node);
+    visitor()->completeScalarVar(node);
+  }
+
+  void visit(const InductionVarNode& node) {
+    visitor()->visitInductionVar(node);
+    visitor()->completeInductionVar(node);
+  }
+
+  void visit(const TensorVarNode& node) {
+    visitor()->visitTensorVar(node);
+    visitor()->completeTensorVar(node);
+  }
+
+  void visit(const VarDeclNode& node) {
+    visitor()->visitVarDecl(node);
+    visitor()->visit(node.var());
+    visitor()->completeVarDecl(node);
+  }
+
+  void visit(const VarLocNode& node) {
+    visitor()->visitVarLoc(node);
+    visitor()->visit(node.var_ref());
+    visitor()->completeVarLoc(node);
+  }
+
+  void visit(const DefaultVarRefNode& node) {
+    visitor()->visitDefaultVarRef(node);
+    visitor()->visit(node.var());
+    visitor()->completeDefaultVarRef(node);
+  }
+
+  void visit(const TensorVarRefNode& node) {
+    visitor()->visitTensorVarRef(node);
+    visitor()->visit(node.var());
+    visitor()->visit(node.index_expr());
+    visitor()->completeTensorVarRef(node);
+  }
+
+  void visit(const IndexExpressionNode& node) {
+    visitor()->visitIndexExpression(node);
+    visitor()->completeTensorVarRef(node);
+  }
+
+  // Visit methods for subclassed types. Contains dispatch logic.
+  void visit(const ExprNode& node) {
     switch (node.kind()) {
-      case IrNode::Kind::kFunction:
-        return visitor()->visit(node);
-      case IrNode::Kind::kDefine:
-        return visitor()->visit(node);
-      case IrNode::Kind::kExpr:
-        return visitor()->visitExpr(node);
       case IrNode::Kind::kBinop:
-        return visitor()->visit(node);
+        return visitor()->visit(static_cast<const BinopNode&>(node));
       case IrNode::Kind::kUnop:
-        return visitor()->visit(node);
-      case IrNode::Kind::kVarRef:
-        return visitor()->visit(node);
-      case IrNode::Kind::kStmt:
-        return visitor()->visitStmt(node);
-      case IrNode::Kind::kSeq:
-        return visitor()->visit(node);
-      case IrNode::Kind::kNop:
-        return visitor()->visit(node);
-      case IrNode::Kind::kLet:
-        return visitor()->visit(node);
-      case IrNode::Kind::kAsgn:
-        return visitor()->visit(node);
-      case IrNode::Kind::kLoop:
-        return visitor()->visit(node);
-      case IrNode::Kind::kParLoop:
-        return visitor()->visit(node);
-      case IrNode::Kind::kVarLoc:
-        return visitor()->visit(node);
-      case IrNode::Kind::kVarDecl:
-        return visitor()->visit(node);
-      case IrNode::Kind::kVar:
-        return visitor()->visitVar(node);
-      case IrNode::Kind::kScalarVar:
-        return visitor()->visit(node);
-      case IrNode::Kind::kInductionVar:
-        return visitor()->visit(node);
-      case IrNode::Kind::kTensorVar:
-        return visitor()->visit(node);
-      case IrNode::Kind::kIndexExpression:
-        return visitor()->visit(node);
-      case IrNode::Kind::kCriticalSection:
-        return visitor()->visit(node);
+        return visitor()->visit(static_cast<const UnopNode&>(node));
+      case IrNode::Kind::kVarExpr:
+        return visitor()->visit(static_cast<const VarExprNode&>(node));
       default:
-        LOG(FATAL) << "Unknown Instruction (" << node.kind() << ").";
-        std::exit(1);
+        ABORT("Invalid ExprNode. OpCode: `%zu`", node.kind());
     }
   }
 
-  RetT visitFunction(const FunctionNode& node) { DELEGATE(IrNode); }
-  RetT visitDefine(const DefineNode& node) { DELEGATE(IrNode); }
-  RetT visitExpr(const ExprNode& node) { DELEGATE(IrNode); }
-  RetT visitBinop(const BinopNode& node) { DELEGATE(ExprNode); }
-  RetT visitUnop(const UnopNode& node) { DELEGATE(ExprNode); }
-  RetT visitVarRef(const VarRefNode& node) { DELEGATE(ExprNode); }
-  RetT visitStmt(const StmtNode& node) { DELEGATE(IrNode); }
-  RetT visitSeq(const SeqNode& node) { DELEGATE(StmtNode); }
-  RetT visitNop(const NopNode& node) { DELEGATE(StmtNode); }
-  RetT visitLet(const LetNode& node) { DELEGATE(StmtNode); }
-  RetT visitAsgn(const AsgnNode& node) { DELEGATE(StmtNode); }
-  RetT visitLoop(const LoopNode& node) { DELEGATE(StmtNode); }
-  RetT visitParLoop(const ParLoopNode& node) { DELEGATE(StmtNode); }
-  RetT visitVarLoc(const VarLocNode& node) { DELEGATE(IrNode); }
-  RetT visitVarDecl(const VarDeclNode& node) { DELEGATE(IrNode); }
-  RetT visitVar(const VarNode& node) { DELEGATE(IrNode); }
-  RetT visitScalarVar(const ScalarVarNode& node) { DELEGATE(VarNode); }
-  RetT visitInductionVar(const InductionVarNode& node) { DELEGATE(VarNode); }
-  RetT visitTensorVar(const TensorVarNode& node) { DELEGATE(VarNode); }
-  RetT visitIndexExpression(const IndexExpressionNode& node) {
-    DELEGATE(IrNode);
+  void visit(const StmtNode& node) {
+    switch (node.kind()) {
+      case IrNode::Kind::kSeq:
+        return visitor()->visit(static_cast<const SeqNode&>(node));
+      case IrNode::Kind::kNop:
+        return visitor()->visit(static_cast<const NopNode&>(node));
+      case IrNode::Kind::kLet:
+        return visitor()->visit(static_cast<const LetNode&>(node));
+      case IrNode::Kind::kAsgn:
+        return visitor()->visit(static_cast<const AsgnNode&>(node));
+      case IrNode::Kind::kLoop:
+        return visitor()->visit(static_cast<const LoopNode&>(node));
+      case IrNode::Kind::kParLoop:
+        return visitor()->visit(static_cast<const ParLoopNode&>(node));
+      default:
+        ABORT("Invalid StmtNode. OpCode: `%zu`", node.kind());
+    }
   }
-  RetT visitCriticalSection(const CriticalSectionNode& node) {
-    DELEGATE(StmtNode);
+
+  void visit(const VarNode& node) {
+    switch (node.kind()) {
+      case IrNode::Kind::kScalarVar:
+        return visitor()->visit(static_cast<const ScalarVarNode&>(node));
+      case IrNode::Kind::kInductionVar:
+        return visitor()->visit(static_cast<const InductionVarNode&>(node));
+      case IrNode::Kind::kTensorVar:
+        return visitor()->visit(static_cast<const TensorVarNode&>(node));
+      default:
+        ABORT("Invalid VarNode. OpCode: `%zu`", node.kind());
+    }
+  }
+
+  void visit(const VarRefNode& node) {
+    switch (node.kind()) {
+      case IrNode::Kind::kDefaultVarRef:
+        return visitor()->visit(static_cast<const DefaultVarRefNode&>(node));
+      case IrNode::Kind::kTensorVarRef:
+        return visitor()->visit(static_cast<const TensorVarRefNode&>(node));
+      default:
+        ABORT("Invalid VarRefNode. OpCode: `%zu`", node.kind());
+    }
+  }
+
+  // Pre-order callbacks.
+  void visitFunction(const FunctionNode& node) { VISIT(IrNode, IrNode); }
+  void visitDefine(const DefineNode& node) { VISIT(IrNode, IrNode); }
+  void visitVar(const VarNode& node) { VISIT(IrNode, IrNode); }
+  void visitScalarVar(const ScalarVarNode& node) { VISIT(Var, VarNode); }
+  void visitInductionVar(const InductionVarNode& node) { VISIT(Var, VarNode); }
+  void visitTensorVar(const TensorVarNode& node) { VISIT(Var, VarNode); }
+  void visitVarDecl(const VarDeclNode& node) { VISIT(IrNode, IrNode); }
+  void visitVarLoc(const VarLocNode& node) { VISIT(IrNode, IrNode); }
+  void visitVarRef(const VarRefNode& node) { VISIT(IrNode, IrNode); }
+  void visitDefaultVarRef(const DefaultVarRefNode& node) {
+    VISIT(VarRef, VarRefNode);
+  }
+  void visitTensorVarRef(const TensorVarRefNode& node) {
+    VISIT(VarRef, VarRefNode);
+  }
+  void visitIndexExpression(const IndexExpressionNode& node) {
+    VISIT(IrNode, IrNode);
+  }
+  void visitExpr(const ExprNode& node) { VISIT(IrNode, IrNode); }
+  void visitBinop(const BinopNode& node) { VISIT(Expr, ExprNode); }
+  void visitUnop(const UnopNode& node) { VISIT(Expr, ExprNode); }
+  void visitVarExpr(const VarExprNode& node) { VISIT(Expr, ExprNode); }
+  void visitStmt(const StmtNode& node) { VISIT(IrNode, IrNode); }
+  void visitSeq(const SeqNode& node) { VISIT(Stmt, StmtNode); }
+  void visitNop(const NopNode& node) { VISIT(Stmt, StmtNode); }
+  void visitLet(const LetNode& node) { VISIT(Stmt, StmtNode); }
+  void visitAsgn(const AsgnNode& node) { VISIT(Stmt, StmtNode); }
+  void visitLoop(const LoopNode& node) { VISIT(Stmt, StmtNode); }
+  void visitParLoop(const ParLoopNode& node) { VISIT(Stmt, StmtNode); }
+  void visitCriticalSection(const CriticalSectionNode& node) {
+    VISIT(Stmt, StmtNode);
   }
 
   // Default logic. Does nothing.
   void visitIrNode(const IrNode& node) {}
 
+  // Post-order callbacks.
+  void completeFunction(const FunctionNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeDefine(const DefineNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeVar(const VarNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeScalarVar(const ScalarVarNode& node) { COMPLETE(Var, VarNode); }
+  void completeInductionVar(const InductionVarNode& node) {
+    COMPLETE(Var, VarNode);
+  }
+  void completeTensorVar(const TensorVarNode& node) { COMPLETE(Var, VarNode); }
+  void completeVarDecl(const VarDeclNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeVarLoc(const VarLocNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeVarRef(const VarRefNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeDefaultVarRef(const DefaultVarRefNode& node) {
+    COMPLETE(VarRef, VarRefNode);
+  }
+  void completeTensorVarRef(const TensorVarRefNode& node) {
+    COMPLETE(VarRef, VarRefNode);
+  }
+  void completeIndexExpression(const IndexExpressionNode& node) {
+    COMPLETE(IrNode, IrNode);
+  }
+  void completeExpr(const ExprNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeBinop(const BinopNode& node) { COMPLETE(Expr, ExprNode); }
+  void completeUnop(const UnopNode& node) { COMPLETE(Expr, ExprNode); }
+  void completeVarExpr(const VarExprNode& node) { COMPLETE(Expr, ExprNode); }
+  void completeStmt(const StmtNode& node) { COMPLETE(IrNode, IrNode); }
+  void completeSeq(const SeqNode& node) { COMPLETE(Stmt, StmtNode); }
+  void completeNop(const NopNode& node) { COMPLETE(Stmt, StmtNode); }
+  void completeLet(const LetNode& node) { COMPLETE(Stmt, StmtNode); }
+  void completeAsgn(const AsgnNode& node) { COMPLETE(Stmt, StmtNode); }
+  void completeLoop(const LoopNode& node) { COMPLETE(Stmt, StmtNode); }
+  void completeParLoop(const ParLoopNode& node) { COMPLETE(Stmt, StmtNode); }
+  void completeCriticalSection(const CriticalSectionNode& node) {
+    COMPLETE(Stmt, StmtNode);
+  }
+
+  // Default logic. Does nothing.
+  void completeIrNode(const IrNode& node) {}
+
  private:
   inline VisitorT* visitor() { return static_cast<VisitorT*>(this); }
 };
 }  // namespace peachyir
+
+#undef VISIT
+#undef COMPLETE
