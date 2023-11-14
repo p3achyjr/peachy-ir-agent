@@ -1,123 +1,118 @@
 #include "peachy_ir_agent/ir.h"
 
 #include <iostream>
+#include <sstream>
 
 namespace peachyir {
 
+// Stream operators.
 std::ostream& operator<<(std::ostream& os, IrNode::Kind kind) {
   switch (kind) {
-    case IrNode::Kind::kUnknown:
-      os << "Unknown";
-      return os;
     case IrNode::Kind::kFunction:
       os << "Function";
-      return os;
+      break;
     case IrNode::Kind::kDefine:
       os << "Define";
-      return os;
-    case IrNode::Kind::kVar:
-      os << "Var";
-      return os;
+      break;
     case IrNode::Kind::kScalarVar:
       os << "ScalarVar";
-      return os;
+      break;
     case IrNode::Kind::kInductionVar:
       os << "InductionVar";
-      return os;
+      break;
     case IrNode::Kind::kTensorVar:
       os << "TensorVar";
-      return os;
+      break;
     case IrNode::Kind::kVarDecl:
       os << "VarDecl";
-      return os;
+      break;
     case IrNode::Kind::kVarLoc:
       os << "VarLoc";
-      return os;
-    case IrNode::Kind::kVarRef:
-      os << "VarRef";
-      return os;
+      break;
     case IrNode::Kind::kDefaultVarRef:
       os << "DefaultVarRef";
-      return os;
+      break;
     case IrNode::Kind::kTensorVarRef:
       os << "TensorVarRef";
-      return os;
+      break;
     case IrNode::Kind::kIndexExpression:
       os << "IndexExpression";
-      return os;
-    case IrNode::Kind::kExpr:
-      os << "Expr";
-      return os;
+      break;
     case IrNode::Kind::kBinop:
       os << "Binop";
-      return os;
+      break;
     case IrNode::Kind::kUnop:
       os << "Unop";
-      return os;
+      break;
     case IrNode::Kind::kVarExpr:
       os << "VarExpr";
-      return os;
-    case IrNode::Kind::kStmt:
-      os << "Stmt";
-      return os;
+      break;
     case IrNode::Kind::kSeq:
       os << "Seq";
-      return os;
+      break;
     case IrNode::Kind::kNop:
       os << "Nop";
-      return os;
+      break;
     case IrNode::Kind::kLet:
       os << "Let";
-      return os;
+      break;
     case IrNode::Kind::kAsgn:
       os << "Asgn";
-      return os;
+      break;
     case IrNode::Kind::kLoop:
       os << "Loop";
-      return os;
+      break;
     case IrNode::Kind::kParLoop:
       os << "ParLoop";
-      return os;
+      break;
     case IrNode::Kind::kCriticalSection:
       os << "CriticalSection";
-      return os;
+      break;
   }
+
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, Type ty) {
   switch (ty) {
     case Type::kNat:
       os << "nat";
-      return os;
+      break;
     case Type::kFloat:
       os << "float";
-      return os;
+      break;
   }
+
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, BinopNode::OpCode op) {
   switch (op) {
     case BinopNode::OpCode::kAdd:
       os << "+";
-      return os;
+      break;
     case BinopNode::OpCode::kSub:
       os << "-";
-      return os;
+      break;
     case BinopNode::OpCode::kMul:
       os << "*";
-      return os;
+      break;
     case BinopNode::OpCode::kDiv:
       os << "/";
-      return os;
+      break;
   }
+
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, UnopNode::OpCode op) {
   switch (op) {
     case UnopNode::OpCode::kNeg:
       os << "-";
-      return os;
+      break;
   }
+
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, LoopNode::Bound bound) {
@@ -125,7 +120,7 @@ std::ostream& operator<<(std::ostream& os, LoopNode::Bound bound) {
       [](auto&& b) -> std::string {
         using T = std::decay_t<decltype(b)>;
         if constexpr (std::is_same_v<T, VarExprNode>) {
-          return b.var().name();
+          return b.var_ref()->name();
         } else {
           return std::to_string(b);
         }
@@ -190,7 +185,7 @@ std::ostream& operator<<(std::ostream& os, const IndexExpressionNode& node) {
     os << (axis.coeff == 1 ? "" : std::to_string(axis.coeff) + "*")
        << axis.var.name()
        << (axis.offset == 0 ? "" : " + " + std::to_string(axis.offset));
-    if (i <= node.axis_indices().size() - 1) os << ", ";
+    if (i < node.axis_indices().size() - 1) os << ", ";
   }
   os << "]";
 
@@ -198,5 +193,23 @@ std::ostream& operator<<(std::ostream& os, const IndexExpressionNode& node) {
 }
 
 std::ostream& operator<<(std::ostream& os, const NopNode& node) { return os; }
+
+// String functions.
+
+namespace {
+template <typename T>
+std::string createString(T x) {
+  std::stringstream ss;
+  ss << x;
+  return ss.str();
+}
+}  // namespace
+
+std::string str(IrNode::Kind kind) { return createString(kind); }
+std::string str(Type ty) { return createString(ty); }
+std::string str(BinopNode::OpCode op) { return createString(op); }
+std::string str(UnopNode::OpCode op) { return createString(op); }
+std::string str(LoopNode::Bound bound) { return createString(bound); }
+std::string str(LoopNode::Stride stride) { return createString(stride); }
 
 }  // namespace peachyir

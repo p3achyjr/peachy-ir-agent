@@ -26,16 +26,12 @@ class LogSink {
 #define LOG(severity) \
   LogSink(LogSink::Severity::severity) << __FILE__ << ":" << __LINE__ << " "
 
-#define CHECK(cond)               \
-  if (!(cond)) {                  \
-    LOG(INFO) << "Check Failed."; \
-    std::exit(1);                 \
-  }
-
-#define ABORT(format, ...)               \
-  {                                      \
-    char buf[1024];                      \
-    sprintf(buf, format, ##__VA_ARGS__); \
-    LOG(INFO) << buf;                    \
-  }                                      \
-  std::exit(1);
+#define ABORT(format, ...)                 \
+  do {                                     \
+    {                                      \
+      char buf[1024];                      \
+      sprintf(buf, format, ##__VA_ARGS__); \
+      LOG(INFO) << buf;                    \
+    }                                      \
+    std::abort();                          \
+  } while (0);

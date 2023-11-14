@@ -16,7 +16,7 @@ namespace kernels {
  *         C[i, j] = C[i, j] + A[i, k] * B[k, j]
  * ```
  */
-FunctionNode matmulIr(size_t m, size_t n, size_t k, std::string name);
+FunctionNodePtr matmulIr(size_t m, size_t n, size_t k, std::string name);
 
 }  // namespace kernels
 }  // namespace peachyir

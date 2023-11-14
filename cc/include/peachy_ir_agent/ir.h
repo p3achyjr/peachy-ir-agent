@@ -35,9 +35,29 @@
   const std::vector<std::shared_ptr<T>>& field() const { return field##_; }
 
 namespace peachyir {
+class FunctionNode;
 class DefineNode;
+class VarNode;
+class ScalarVarNode;
+class InductionVarNode;
+class TensorVarNode;
+class VarRefNode;
+class DefaultVarRef;
+class TensorVarRefNode;
 class StmtNode;
 class VarDeclNode;
+class ExprNode;
+class BinopNode;
+class UnopNode;
+class VarExprNode;
+class StmtNode;
+class SeqNode;
+class NopNode;
+class LetNode;
+class AsgnNode;
+class LoopNode;
+class ParLoopNode;
+class CriticalSectionNode;
 
 /*
  * (NOT CONCRETE) Base IrNode class.
@@ -45,32 +65,26 @@ class VarDeclNode;
 class IrNode {
  public:
   enum class Kind : uint8_t {
-    kUnknown = 0,
-
     //
     // Allowed in HLIR (IR fed to model).
     //
-    kFunction,
+    kFunction = 0,
     kDefine,
     // Variables
-    kVar,
     kScalarVar,
     kInductionVar,
     kTensorVar,
-    kVarDecl,  // declaration of variable (with type, shape).
-    kVarLoc,   // location of variable to assign to (i.e. variable write).
-    kVarRef,   // Variable reference, post-decl. Tensor variables must be
-               // indexed.
-    kDefaultVarRef,
+    kVarDecl,        // declaration of variable (with type, shape).
+    kVarLoc,         // location of variable to assign to (i.e. variable write).
+    kDefaultVarRef,  // Variable references, post-decl. Tensor variables must be
+                     // indexed.
     kTensorVarRef,
     kIndexExpression,
     // Expressions.
-    kExpr,
     kBinop,
     kUnop,
     kVarExpr,  // Usage of variable in expression.
     // Statements.
-    kStmt,
     kSeq,
     kNop,
     kLet,
@@ -85,10 +99,11 @@ class IrNode {
   };
 
   virtual ~IrNode() = default;
-  virtual Kind kind() const = 0;
+  inline Kind kind() const { return kind_; }
 
  protected:
-  IrNode() = default;
+  explicit IrNode(Kind kind) : kind_(kind) {}
+  const Kind kind_;
 };
 
 enum class Type : uint8_t {
@@ -100,35 +115,39 @@ enum class Type : uint8_t {
  * Node representing a function. Contains `n` arguments, with types, `d`
  * defines, and a body `b`.
  */
+using FunctionNodePtr = std::shared_ptr<FunctionNode>;
 class FunctionNode : public IrNode {
  public:
-  // Reference.
-  template <typename VarDeclT = VarDeclNode, typename DefineT = DefineNode,
-            typename StmtT = StmtNode,
-            std::enable_if_t<std::is_convertible_v<VarDeclT, VarDeclNode> &&
-                                 std::is_convertible_v<DefineT, DefineNode> &&
-                                 std::is_convertible_v<StmtT, StmtNode>,
-                             bool> = true>
-  FunctionNode(std::string name, std::vector<VarDeclT>&& args,
-               std::vector<DefineT> defines, StmtT&& body)
-      : FunctionNode(name, args, defines, std::make_shared<StmtT>(body)) {}
-
-  // Shared Ptr.
   template <typename VarDeclT = VarDeclNode, typename DefineT = DefineNode,
             std::enable_if_t<std::is_convertible_v<VarDeclT, VarDeclNode> &&
                                  std::is_convertible_v<DefineT, DefineNode>,
                              bool> = true>
   FunctionNode(std::string name, std::vector<VarDeclT>&& args,
-               std::vector<DefineT> defines, std::shared_ptr<StmtNode> body)
-      : name_(name), args_(args), defines_(defines), body_(body) {}
+               std::vector<DefineT>&& defines, std::shared_ptr<StmtNode> body)
+      : IrNode(Kind::kFunction),
+        name_(name),
+        args_(args),
+        defines_(defines),
+        body_(body) {}
 
   ~FunctionNode() override = default;
-  inline Kind kind() const override { return Kind::kFunction; }
 
   DECLARE_FIELD(std::string, name);
   DECLARE_VEC_FIELD(VarDeclNode, args);
   DECLARE_VEC_FIELD(DefineNode, defines);
   DECLARE_PTR_FIELD(StmtNode, body);
+
+  template <typename VarDeclT = VarDeclNode, typename DefineT = DefineNode,
+            std::enable_if_t<std::is_same_v<VarDeclT, VarDeclNode> &&
+                                 std::is_same_v<DefineT, DefineNode>,
+                             bool> = true>
+  static FunctionNodePtr create(std::string name, std::vector<VarDeclT>&& args,
+                                std::vector<DefineT>&& defines,
+                                std::shared_ptr<StmtNode> body) {
+    return std::make_shared<FunctionNode>(
+        name, std::forward<std::vector<VarDeclT>>(args),
+        std::forward<std::vector<DefineT>>(defines), body);
+  }
 };
 
 /*
@@ -136,9 +155,9 @@ class FunctionNode : public IrNode {
  */
 class DefineNode : public IrNode {
  public:
-  DefineNode(std::string name, size_t val) : name_(name), val_(val) {}
+  DefineNode(std::string name, size_t val)
+      : IrNode(Kind::kDefine), name_(name), val_(val) {}
   ~DefineNode() override = default;
-  inline Kind kind() const override { return Kind::kDefine; }
 
   DECLARE_FIELD(std::string, name);
   DECLARE_FIELD(size_t, val);
@@ -147,75 +166,90 @@ class DefineNode : public IrNode {
 /*
  * (NOT CONCRETE) Node representing a variable.
  */
+using VarNodePtr = std::shared_ptr<VarNode>;
 class VarNode : public IrNode {
  public:
   ~VarNode() override = default;
-  inline Kind kind() const override { return Kind::kVar; }
 
   DECLARE_FIELD(std::string, name);
 
  protected:
-  VarNode(std::string name) : name_(name) {}
+  VarNode(Kind kind, std::string name) : IrNode(kind), name_(name) {}
 };
 
 /*
  * Node representing a scalar variable.
  */
+using ScalarVarNodePtr = std::shared_ptr<ScalarVarNode>;
 class ScalarVarNode : public VarNode {
  public:
-  ScalarVarNode(std::string name, Type type) : VarNode(name), type_(type) {}
+  ScalarVarNode(std::string name, Type type)
+      : VarNode(Kind::kScalarVar, name), type_(type) {}
   ~ScalarVarNode() override = default;
-  inline Kind kind() const override { return Kind::kScalarVar; }
 
   DECLARE_FIELD(Type, type);
+
+  static ScalarVarNodePtr create(std::string name, Type type) {
+    return std::make_shared<ScalarVarNode>(name, type);
+  }
 };
 
 /*
  * Node representing a induction variable.
  */
+using InductionVarNodePtr = std::shared_ptr<InductionVarNode>;
 class InductionVarNode : public VarNode {
  public:
   InductionVarNode(std::string name, size_t axis)
-      : VarNode(name), axis_(axis) {}
+      : VarNode(Kind::kInductionVar, name), axis_(axis) {}
   ~InductionVarNode() override = default;
-  inline Kind kind() const override { return Kind::kInductionVar; }
 
   DECLARE_FIELD(size_t, axis);
+
+  static InductionVarNodePtr create(std::string name, size_t axis) {
+    return std::make_shared<InductionVarNode>(name, axis);
+  }
 };
 
 /*
  * Node representing a tensor variable.
  */
+using TensorVarNodePtr = std::shared_ptr<TensorVarNode>;
 class TensorVarNode : public VarNode {
  public:
   TensorVarNode(std::string name, std::vector<size_t> shape)
-      : VarNode(name), shape_(shape) {}
+      : VarNode(Kind::kTensorVar, name), shape_(shape) {}
   ~TensorVarNode() override = default;
-  inline Kind kind() const override { return Kind::kTensorVar; }
 
   DECLARE_VEC_FIELD(size_t, shape);
+
+  static TensorVarNodePtr create(std::string name, std::vector<size_t> shape) {
+    return std::make_shared<TensorVarNode>(name, shape);
+  }
 };
 
 /*
  * (NOT CONCRETE) Node representing a variable reference.
  */
+using VarRefNodePtr = std::shared_ptr<VarRefNode>;
 class VarRefNode : public IrNode {
  public:
   ~VarRefNode() override = default;
-  inline Kind kind() const override { return Kind::kVarRef; }
+
+  DECLARE_FIELD(std::string, name);
 
  protected:
-  VarRefNode() = default;
+  VarRefNode(Kind kind, std::string name) : IrNode(kind), name_(name) {}
 };
 
+using DefaultVarRefPtr = std::shared_ptr<DefaultVarRef>;
 class DefaultVarRefNode : public VarRefNode {
  public:
-  DefaultVarRefNode(const VarNode& var) : var_(var) {}
-  DefaultVarRefNode(VarNode&& var) : var_(var) {}
+  DefaultVarRefNode(std::shared_ptr<VarNode> var)
+      : VarRefNode(Kind::kDefaultVarRef, var->name()), var_(var) {}
   ~DefaultVarRefNode() override = default;
-  inline Kind kind() const override { return Kind::kDefaultVarRef; }
 
-  DECLARE_FIELD(VarNode, var);
+  DECLARE_PTR_FIELD(VarNode, var);
 };
 
 /*
@@ -236,9 +270,8 @@ class IndexExpressionNode : public IrNode {
   };
 
   IndexExpressionNode(std::vector<AxisIndex> axis_indices)
-      : axis_indices_(axis_indices) {}
+      : IrNode(Kind::kIndexExpression), axis_indices_(axis_indices) {}
   ~IndexExpressionNode() override = default;
-  inline Kind kind() const override { return Kind::kIndexExpression; }
 
   DECLARE_VEC_FIELD(AxisIndex, axis_indices);
 };
@@ -246,16 +279,23 @@ class IndexExpressionNode : public IrNode {
 /*
  * Node representing a tensor ref.
  */
+using TensorVarRefNodePtr = std::shared_ptr<TensorVarRefNode>;
 class TensorVarRefNode : public VarRefNode {
  public:
   TensorVarRefNode(const TensorVarNode& var,
                    const IndexExpressionNode& index_expr)
-      : var_(var), index_expr_(index_expr) {}
+      : VarRefNode(Kind::kTensorVarRef, var.name()),
+        var_(var),
+        index_expr_(index_expr) {}
   ~TensorVarRefNode() override = default;
-  inline Kind kind() const override { return Kind::kTensorVarRef; }
 
   DECLARE_FIELD(TensorVarNode, var);
   DECLARE_FIELD(IndexExpressionNode, index_expr);
+
+  static TensorVarRefNodePtr create(const TensorVarNode& var,
+                                    const IndexExpressionNode& index_expr) {
+    return std::make_shared<TensorVarRefNode>(var, index_expr);
+  }
 };
 
 /*
@@ -263,13 +303,12 @@ class TensorVarRefNode : public VarRefNode {
  */
 class VarDeclNode : public IrNode {
  public:
-  VarDeclNode(const VarNode& var) : var_(var) {}
-  VarDeclNode(VarNode&& var) : var_(var) {}
+  VarDeclNode(std::shared_ptr<VarNode> var)
+      : IrNode(Kind::kVarDecl), var_(var) {}
 
   ~VarDeclNode() override = default;
-  inline Kind kind() const override { return Kind::kVarDecl; }
 
-  DECLARE_FIELD(VarNode, var);
+  DECLARE_PTR_FIELD(VarNode, var);
 };
 
 /*
@@ -277,30 +316,30 @@ class VarDeclNode : public IrNode {
  */
 class VarLocNode : public IrNode {
  public:
-  VarLocNode(const VarRefNode& var_ref) : var_ref_(var_ref) {}
-  VarLocNode(VarRefNode&& var_ref) : var_ref_(var_ref) {}
+  VarLocNode(std::shared_ptr<VarRefNode> var_ref)
+      : IrNode(Kind::kVarLoc), var_ref_(var_ref) {}
 
   ~VarLocNode() override = default;
-  inline Kind kind() const override { return Kind::kVarLoc; }
 
-  DECLARE_FIELD(VarRefNode, var_ref);
+  DECLARE_PTR_FIELD(VarRefNode, var_ref);
 };
 
 /*
  * (NOT CONCRETE) Node representing an expression.
  */
+using ExprNodePtr = std::shared_ptr<ExprNode>;
 class ExprNode : public IrNode {
  public:
   ~ExprNode() override = default;
-  inline Kind kind() const override { return Kind::kExpr; }
 
  protected:
-  ExprNode() = default;
+  ExprNode(Kind kind) : IrNode(kind) {}
 };
 
 /*
  * Node representing a binary expression.
  */
+using BinopNodePtr = std::shared_ptr<BinopNode>;
 class BinopNode : public ExprNode {
  public:
   enum class OpCode : uint8_t {
@@ -310,240 +349,277 @@ class BinopNode : public ExprNode {
     kDiv,
   };
 
-  // Reference.
-  template <typename LExprT = ExprNode, typename RExprT = ExprNode,
-            std::enable_if_t<std::is_convertible_v<LExprT, ExprNode> &&
-                                 std::is_convertible_v<RExprT, ExprNode>,
-                             bool> = true>
-  BinopNode(LExprT&& lhs, OpCode op, RExprT&& rhs)
-      : lhs_(std::make_shared<LExprT>(std::forward<LExprT>(lhs))),
-        op_(op),
-        rhs_(std::make_shared<RExprT>(std::forward<RExprT>(rhs))) {}
-
-  // Shared Ptr.
   BinopNode(std::shared_ptr<ExprNode> lhs, OpCode op,
             std::shared_ptr<ExprNode> rhs)
-      : lhs_(lhs), op_(op), rhs_(rhs) {}
+      : ExprNode(Kind::kBinop), lhs_(lhs), op_(op), rhs_(rhs) {}
   ~BinopNode() override = default;
-  inline Kind kind() const override { return Kind::kBinop; }
 
   DECLARE_PTR_FIELD(ExprNode, lhs);
   DECLARE_FIELD(OpCode, op);
   DECLARE_PTR_FIELD(ExprNode, rhs);
+
+  static BinopNodePtr create(std::shared_ptr<ExprNode> lhs, OpCode op,
+                             std::shared_ptr<ExprNode> rhs) {
+    return std::make_shared<BinopNode>(lhs, op, rhs);
+  }
 };
 
 /*
  * Node representing a unary expression.
  */
+using UnopNodePtr = std::shared_ptr<UnopNode>;
 class UnopNode : public ExprNode {
  public:
   enum class OpCode : uint8_t {
     kNeg = 0,
   };
 
-  UnopNode(OpCode op, const ExprNode& expr)
-      : op_(op), expr_(std::make_shared<ExprNode>(expr)) {}
-  UnopNode(OpCode op, ExprNode&& expr)
-      : op_(op), expr_(std::make_shared<ExprNode>(expr)) {}
-  UnopNode(OpCode op, std::shared_ptr<ExprNode> expr) : op_(op), expr_(expr) {}
+  UnopNode(OpCode op, std::shared_ptr<ExprNode> expr)
+      : ExprNode(Kind::kUnop), op_(op), expr_(expr) {}
   ~UnopNode() override = default;
-  inline Kind kind() const override { return Kind::kUnop; }
 
   DECLARE_FIELD(OpCode, op);
   DECLARE_PTR_FIELD(ExprNode, expr);
+
+  static UnopNodePtr create(OpCode op, std::shared_ptr<ExprNode> expr) {
+    return std::make_shared<UnopNode>(op, expr);
+  }
 };
 
 /*
  * Node representing a reference to a variable (or a usage).
  */
+using VarExprNodePtr = std::shared_ptr<VarExprNode>;
 class VarExprNode : public ExprNode {
  public:
-  VarExprNode(const VarRefNode& var_ref) : var_ref_(var_ref) {}
-  VarExprNode(VarRefNode&& var_ref) : var_ref_(var_ref) {}
-
+  VarExprNode(std::shared_ptr<VarRefNode> var_ref)
+      : ExprNode(Kind::kVarExpr), var_ref_(var_ref) {}
   ~VarExprNode() override = default;
-  inline Kind kind() const override { return Kind::kVarExpr; }
 
-  DECLARE_FIELD(VarRefNode, var_ref);
+  DECLARE_PTR_FIELD(VarRefNode, var_ref);
+
+  static VarExprNodePtr create(std::shared_ptr<VarRefNode> var_ref) {
+    return std::make_shared<VarExprNode>(var_ref);
+  }
 };
 
 /*
  * (NOT CONCRETE) Node representing a statement.
  */
+using StmtNodePtr = std::shared_ptr<StmtNode>;
 class StmtNode : public IrNode {
  public:
   ~StmtNode() override = default;
-  inline Kind kind() const override { return Kind::kStmt; }
 
  protected:
-  StmtNode() = default;
+  StmtNode(Kind kind) : IrNode(kind) {}
 };
 
 /*
  * Node representing a sequence of statements.
  */
+using SeqNodePtr = std::shared_ptr<SeqNode>;
 class SeqNode : public StmtNode {
  public:
   SeqNode(const std::vector<std::shared_ptr<StmtNode>>& stmts)
-      : stmts_(stmts) {}
-  SeqNode(std::vector<std::shared_ptr<StmtNode>>&& stmts) : stmts_(stmts) {}
+      : StmtNode(Kind::kSeq), stmts_(stmts) {}
+  SeqNode(std::vector<std::shared_ptr<StmtNode>>&& stmts)
+      : StmtNode(Kind::kSeq), stmts_(stmts) {}
   ~SeqNode() override = default;
-  inline Kind kind() const override { return Kind::kSeq; }
 
   DECLARE_VEC_PTR_FIELD(StmtNode, stmts);
+
+  template <
+      typename StmtT = StmtNode,
+      std::enable_if_t<std::is_convertible_v<StmtT, StmtNode>, bool> = true>
+  static SeqNodePtr create(std::vector<std::shared_ptr<StmtT>>&& stmts) {
+    return std::make_shared<StmtNode>(
+        std::forward<std::vector<std::shared_ptr<StmtT>>>(stmts));
+  }
 };
 
 /*
  * Node representing a no-op.
  */
+using NopNodePtr = std::shared_ptr<NopNode>;
 class NopNode : public StmtNode {
  public:
-  NopNode() = default;
+  NopNode() : StmtNode(Kind::kNop) {}
   ~NopNode() override = default;
-  inline Kind kind() const override { return Kind::kNop; }
+
+  static NopNodePtr create() { return std::make_shared<NopNode>(); }
 };
 
 /*
  * Node representing a let-expression (as a statement).
  */
+using LetNodePtr = std::shared_ptr<LetNode>;
 class LetNode : public StmtNode {
  public:
-  // Reference.
-  template <typename VarDeclT = VarDeclNode, typename ExprT = ExprNode,
-            typename StmtT = StmtNode,
-            std::enable_if_t<std::is_convertible_v<VarDeclT, VarDeclNode> &&
-                                 std::is_convertible_v<ExprT, ExprNode> &&
-                                 std::is_convertible_v<StmtT, StmtNode>,
-                             bool> = true>
-  LetNode(VarDeclT&& var_decl, ExprT&& expr, StmtT&& stmt)
-      : LetNode(std::forward<VarDeclT>(var_decl), std::make_shared<ExprT>(expr),
-                std::make_shared<StmtT>(stmt)) {}
-
-  // Shared Ptr.
   LetNode(const VarDeclNode& var_decl, std::shared_ptr<ExprNode> expr,
           std::shared_ptr<StmtNode> stmt)
-      : var_decl_(var_decl), expr_(expr) {}
+      : StmtNode(Kind::kLet), var_decl_(var_decl), expr_(expr) {}
   LetNode(VarDeclNode&& var_decl, std::shared_ptr<ExprNode> expr,
           std::shared_ptr<StmtNode> stmt)
-      : var_decl_(var_decl), expr_(expr) {}
+      : StmtNode(Kind::kLet), var_decl_(var_decl), expr_(expr) {}
 
   ~LetNode() override = default;
-  inline Kind kind() const override { return Kind::kLet; }
 
   DECLARE_FIELD(VarDeclNode, var_decl);
   DECLARE_PTR_FIELD(ExprNode, expr);
   DECLARE_PTR_FIELD(StmtNode, scope);
+
+  static LetNodePtr create(const VarDeclNode& var_decl,
+                           std::shared_ptr<ExprNode> expr,
+                           std::shared_ptr<StmtNode> stmt) {
+    return std::make_shared<LetNode>(var_decl, expr, stmt);
+  }
+
+  static LetNodePtr create(VarDeclNode&& var_decl,
+                           std::shared_ptr<ExprNode> expr,
+                           std::shared_ptr<StmtNode> stmt) {
+    return std::make_shared<LetNode>(var_decl, expr, stmt);
+  }
 };
 
 /*
  * Node representing assignment to a variable.
  */
+using AsgnNodePtr = std::shared_ptr<AsgnNode>;
 class AsgnNode : public StmtNode {
  public:
-  // Reference.
-  template <typename VarLocT = VarLocNode, typename ExprT = ExprNode,
-            std::enable_if_t<std::is_convertible_v<VarLocT, VarLocNode> &&
-                                 std::is_convertible_v<ExprT, ExprNode>,
-                             bool> = true>
-  AsgnNode(VarLocT&& var_loc, ExprT&& expr)
-      : AsgnNode(std::forward<VarLocT>(var_loc),
-                 std::make_shared<ExprT>(std::forward<ExprT>(expr))) {}
-
-  // Shared Ptr.
   AsgnNode(const VarLocNode& var_loc, std::shared_ptr<ExprNode> expr)
-      : var_loc_(var_loc), expr_(expr) {}
+      : StmtNode(Kind::kAsgn), var_loc_(var_loc), expr_(expr) {}
   AsgnNode(VarLocNode&& var_loc, std::shared_ptr<ExprNode> expr)
-      : var_loc_(var_loc), expr_(expr) {}
+      : StmtNode(Kind::kAsgn), var_loc_(var_loc), expr_(expr) {}
   ~AsgnNode() override = default;
-  inline Kind kind() const override { return Kind::kAsgn; }
 
   DECLARE_FIELD(VarLocNode, var_loc);
   DECLARE_PTR_FIELD(ExprNode, expr);
+
+  static AsgnNodePtr create(const VarLocNode& var_loc,
+                            std::shared_ptr<ExprNode> expr) {
+    return std::make_shared<AsgnNode>(var_loc, expr);
+  }
+
+  static AsgnNodePtr create(VarLocNode&& var_loc,
+                            std::shared_ptr<ExprNode> expr) {
+    return std::make_shared<AsgnNode>(var_loc, expr);
+  }
 };
 
 /*
  * Node representing a loop.
  */
+using LoopNodePtr = std::shared_ptr<LoopNode>;
 class LoopNode : public StmtNode {
  public:
   using Bound = std::variant<size_t, VarExprNode>;
   using Stride = std::variant<size_t, DefineNode>;
 
-  // Reference.
-  template <
-      typename InductionVarT = InductionVarNode, typename StmtT = StmtNode,
-      std::enable_if_t<std::is_convertible_v<InductionVarT, InductionVarNode> &&
-                           std::is_convertible_v<StmtT, StmtNode>,
-                       bool> = true>
-  LoopNode(InductionVarT&& induction_var, Bound lower_bound, Bound upper_bound,
-           Stride stride, StmtT&& body)
-      : LoopNode(std::forward<InductionVarT>(induction_var), lower_bound,
-                 upper_bound, stride,
-                 std::make_shared<StmtT>(std::forward<StmtT>(body))) {}
-
-  // Shared Ptr.
   LoopNode(const InductionVarNode& induction_var, Bound lower_bound,
            Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : induction_var_(induction_var),
-        lower_bound_(lower_bound),
-        upper_bound_(upper_bound),
-        body_(body) {}
+      : LoopNode(Kind::kLoop, induction_var, lower_bound, upper_bound, stride,
+                 body) {}
   LoopNode(InductionVarNode&& induction_var, Bound lower_bound,
            Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : induction_var_(induction_var),
-        lower_bound_(lower_bound),
-        upper_bound_(upper_bound),
-        body_(body) {}
+      : LoopNode(Kind::kLoop, induction_var, lower_bound, upper_bound, stride,
+                 body) {}
 
   ~LoopNode() override = default;
-  inline Kind kind() const override { return Kind::kLoop; }
 
   DECLARE_FIELD(InductionVarNode, induction_var);
   DECLARE_FIELD(Bound, lower_bound);
   DECLARE_FIELD(Bound, upper_bound);
   DECLARE_FIELD(Stride, stride);
   DECLARE_PTR_FIELD(StmtNode, body);
+
+  static LoopNodePtr create(const InductionVarNode& induction_var,
+                            Bound lower_bound, Bound upper_bound, Stride stride,
+                            std::shared_ptr<StmtNode> body) {
+    return std::make_shared<LoopNode>(induction_var, lower_bound, upper_bound,
+                                      stride, body);
+  }
+
+  static LoopNodePtr create(InductionVarNode&& induction_var, Bound lower_bound,
+                            Bound upper_bound, Stride stride,
+                            std::shared_ptr<StmtNode> body) {
+    return std::make_shared<LoopNode>(induction_var, lower_bound, upper_bound,
+                                      stride, body);
+  }
+
+ protected:
+  template <
+      typename InductionVarT = InductionVarNode,
+      std::enable_if_t<std::is_convertible_v<InductionVarT, InductionVarNode>,
+                       bool> = true>
+  LoopNode(Kind kind, InductionVarT&& induction_var, Bound lower_bound,
+           Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
+      : StmtNode(kind),
+        induction_var_(std::forward<InductionVarT>(induction_var)),
+        lower_bound_(lower_bound),
+        upper_bound_(upper_bound),
+        stride_(stride),
+        body_(body) {}
 };
 
 /*
  * Node representing a parallel loop.
  */
+using ParLoopNodePtr = std::shared_ptr<ParLoopNode>;
 class ParLoopNode : public LoopNode {
  public:
-  // Reference.
-  template <
-      typename InductionVarT = InductionVarNode, typename StmtT = StmtNode,
-      std::enable_if_t<std::is_convertible_v<InductionVarT, InductionVarNode> &&
-                           std::is_convertible_v<StmtT, StmtNode>,
-                       bool> = true>
-  ParLoopNode(InductionVarT&& induction_var, Bound lower_bound,
-              Bound upper_bound, Stride stride, StmtT&& body)
-      : LoopNode(std::forward<InductionVarT>(induction_var), lower_bound,
-                 upper_bound, stride, std::forward<StmtT>(body)) {}
-
-  // Shared Ptr.
   ParLoopNode(const InductionVarNode& induction_var, Bound lower_bound,
               Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : LoopNode(induction_var, lower_bound, upper_bound, stride, body) {}
+      : LoopNode(Kind::kParLoop, induction_var, lower_bound, upper_bound,
+                 stride, body) {}
   ParLoopNode(InductionVarNode&& induction_var, Bound lower_bound,
               Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : LoopNode(induction_var, lower_bound, upper_bound, stride, body) {}
+      : LoopNode(Kind::kParLoop, induction_var, lower_bound, upper_bound,
+                 stride, body) {}
 
   ~ParLoopNode() override = default;
-  inline Kind kind() const override { return Kind::kParLoop; }
+
+  static ParLoopNodePtr create(const InductionVarNode& induction_var,
+                               Bound lower_bound, Bound upper_bound,
+                               Stride stride, std::shared_ptr<StmtNode> body) {
+    return std::make_shared<ParLoopNode>(induction_var, lower_bound,
+                                         upper_bound, stride, body);
+  }
+
+  static ParLoopNodePtr create(InductionVarNode&& induction_var,
+                               Bound lower_bound, Bound upper_bound,
+                               Stride stride, std::shared_ptr<StmtNode> body) {
+    return std::make_shared<ParLoopNode>(induction_var, lower_bound,
+                                         upper_bound, stride, body);
+  }
 };
 
 /*
  * Node representing a critical section.
  */
+using CriticalSectionNodePtr = std::shared_ptr<CriticalSectionNode>;
 class CriticalSectionNode : public StmtNode {
  public:
-  CriticalSectionNode(std::vector<std::shared_ptr<AsgnNode>> critical_writes)
-      : critical_writes_(critical_writes) {}
+  CriticalSectionNode(
+      const std::vector<std::shared_ptr<AsgnNode>>& critical_writes)
+      : StmtNode(Kind::kCriticalSection), critical_writes_(critical_writes) {}
+  CriticalSectionNode(std::vector<std::shared_ptr<AsgnNode>>&& critical_writes)
+      : StmtNode(Kind::kCriticalSection), critical_writes_(critical_writes) {}
+
   ~CriticalSectionNode() override = default;
-  inline Kind kind() const override { return Kind::kCriticalSection; }
 
   DECLARE_VEC_PTR_FIELD(AsgnNode, critical_writes);
+
+  static CriticalSectionNodePtr create(
+      const std::vector<std::shared_ptr<AsgnNode>>& critical_writes) {
+    return std::make_shared<CriticalSectionNode>(critical_writes);
+  }
+
+  static CriticalSectionNodePtr create(
+      std::vector<std::shared_ptr<AsgnNode>>&& critical_writes) {
+    return std::make_shared<CriticalSectionNode>(critical_writes);
+  }
 };
 
 // Stream operators for terminal node types.
@@ -559,5 +635,13 @@ std::ostream& operator<<(std::ostream& os, const InductionVarNode& node);
 std::ostream& operator<<(std::ostream& os, const TensorVarNode& node);
 std::ostream& operator<<(std::ostream& os, const IndexExpressionNode& node);
 std::ostream& operator<<(std::ostream& os, const NopNode& node);
+
+// string cast for enums.
+std::string str(IrNode::Kind kind);
+std::string str(Type ty);
+std::string str(BinopNode::OpCode op);
+std::string str(UnopNode::OpCode op);
+std::string str(LoopNode::Bound bound);
+std::string str(LoopNode::Stride stride);
 
 }  // namespace peachyir

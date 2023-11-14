@@ -161,7 +161,7 @@ class IrVisitor {
 
   void visit(const IndexExpressionNode& node) {
     visitor()->visitIndexExpression(node);
-    visitor()->completeTensorVarRef(node);
+    visitor()->completeIndexExpression(node);
   }
 
   // Visit methods for subclassed types. Contains dispatch logic.
@@ -174,7 +174,7 @@ class IrVisitor {
       case IrNode::Kind::kVarExpr:
         return visitor()->visit(static_cast<const VarExprNode&>(node));
       default:
-        ABORT("Invalid ExprNode. OpCode: `%zu`", node.kind());
+        ABORT("Invalid ExprNode. OpCode: `%s`", str(node.kind()).c_str());
     }
   }
 
@@ -193,7 +193,7 @@ class IrVisitor {
       case IrNode::Kind::kParLoop:
         return visitor()->visit(static_cast<const ParLoopNode&>(node));
       default:
-        ABORT("Invalid StmtNode. OpCode: `%zu`", node.kind());
+        ABORT("Invalid StmtNode. OpCode: `%s`", str(node.kind()).c_str());
     }
   }
 
@@ -206,7 +206,7 @@ class IrVisitor {
       case IrNode::Kind::kTensorVar:
         return visitor()->visit(static_cast<const TensorVarNode&>(node));
       default:
-        ABORT("Invalid VarNode. OpCode: `%zu`", node.kind());
+        ABORT("Invalid VarNode. OpCode: `%s`", str(node.kind()).c_str());
     }
   }
 
@@ -217,7 +217,7 @@ class IrVisitor {
       case IrNode::Kind::kTensorVarRef:
         return visitor()->visit(static_cast<const TensorVarRefNode&>(node));
       default:
-        ABORT("Invalid VarRefNode. OpCode: `%zu`", node.kind());
+        ABORT("Invalid VarRefNode. OpCode: `%s`", str(node.kind()).c_str());
     }
   }
 
@@ -297,7 +297,7 @@ class IrVisitor {
   // Default logic. Does nothing.
   void completeIrNode(const IrNode& node) {}
 
- private:
+ protected:
   inline VisitorT* visitor() { return static_cast<VisitorT*>(this); }
 };
 }  // namespace peachyir
