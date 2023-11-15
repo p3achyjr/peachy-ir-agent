@@ -7,3 +7,4 @@ function(create_test TARGET_NAME)
 endfunction()
 
 create_test(ir_test)
+create_test(tile_test)

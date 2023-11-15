@@ -121,8 +121,12 @@ std::ostream& operator<<(std::ostream& os, LoopNode::Bound bound) {
         using T = std::decay_t<decltype(b)>;
         if constexpr (std::is_same_v<T, LoopNode::CompositeBound>) {
           std::string coeff_str = str(b.coeff);
-          std::string offset_str = str(b.coeff);
-          return (coeff_str == "1" ? "" : coeff_str + " * ") + b.var.name() +
+          std::string var_str =
+              b.var.name() + (b.var.tile_level() == -1
+                                  ? ""
+                                  : ".T" + std::to_string(b.var.tile_level()));
+          std::string offset_str = str(b.offset);
+          return (coeff_str == "1" ? "" : coeff_str + " * ") + var_str +
                  (offset_str == "0" ? "" : " + " + offset_str);
         } else {
           return std::to_string(b);
@@ -162,7 +166,7 @@ std::ostream& operator<<(std::ostream& os, const InductionVarNode& node) {
   std::string name =
       node.tile_level() == -1
           ? node.name()
-          : node.name() + ".T(" + std::to_string(node.tile_level()) + ")";
+          : node.name() + ".T" + std::to_string(node.tile_level());
   os << name << ": axis(" << node.axis() << ")";
   return os;
 }
