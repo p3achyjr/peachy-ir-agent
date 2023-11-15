@@ -20,6 +20,15 @@
   std::shared_ptr<T> field() const { return field##_; } \
   T* raw_##field() const { return field##_.get(); }
 
+// Use this to declare a potentially subtyped field that behaves with value
+// semantics.
+#define DECLARE_UNIQUE_PTR_FIELD(T, field) \
+ private:                                  \
+  std::unique_ptr<T> field##_;             \
+                                           \
+ public:                                   \
+  const T& field() const { return *field##_; }
+
 #define DECLARE_VEC_FIELD(T, field) \
  private:                           \
   std::vector<T> field##_;          \
@@ -118,16 +127,25 @@ enum class Type : uint8_t {
 using FunctionNodePtr = std::shared_ptr<FunctionNode>;
 class FunctionNode : public IrNode {
  public:
+  struct AxisInfo {
+    size_t length;
+    size_t tiles;
+  };
+
   template <typename VarDeclT = VarDeclNode, typename DefineT = DefineNode,
-            std::enable_if_t<std::is_convertible_v<VarDeclT, VarDeclNode> &&
-                                 std::is_convertible_v<DefineT, DefineNode>,
-                             bool> = true>
-  FunctionNode(std::string name, std::vector<VarDeclT>&& args,
-               std::vector<DefineT>&& defines, std::shared_ptr<StmtNode> body)
+            std::enable_if_t<
+                std::is_convertible_v<std::decay_t<VarDeclT>*, VarDeclNode*> &&
+                    std::is_convertible_v<std::decay_t<DefineT>*, DefineNode*>,
+                bool> = true,
+            typename VarDeclVec = std::vector<VarDeclT>,
+            typename DefineVec = std::vector<DefineT>>
+  FunctionNode(std::string name, VarDeclVec&& args, DefineVec&& defines,
+               std::vector<AxisInfo> axes_info, std::shared_ptr<StmtNode> body)
       : IrNode(Kind::kFunction),
         name_(name),
         args_(args),
         defines_(defines),
+        axes_info_(axes_info),
         body_(body) {}
 
   ~FunctionNode() override = default;
@@ -135,18 +153,26 @@ class FunctionNode : public IrNode {
   DECLARE_FIELD(std::string, name);
   DECLARE_VEC_FIELD(VarDeclNode, args);
   DECLARE_VEC_FIELD(DefineNode, defines);
+  DECLARE_VEC_FIELD(AxisInfo, axes_info);
   DECLARE_PTR_FIELD(StmtNode, body);
 
+  inline size_t axis_len(size_t axis) const { return axes_info_[axis].length; }
+  inline size_t axis_tiles(size_t axis) const { return axes_info_[axis].tiles; }
+
   template <typename VarDeclT = VarDeclNode, typename DefineT = DefineNode,
-            std::enable_if_t<std::is_same_v<VarDeclT, VarDeclNode> &&
-                                 std::is_same_v<DefineT, DefineNode>,
-                             bool> = true>
-  static FunctionNodePtr create(std::string name, std::vector<VarDeclT>&& args,
-                                std::vector<DefineT>&& defines,
+            std::enable_if_t<
+                std::is_convertible_v<std::decay_t<VarDeclT>*, VarDeclNode*> &&
+                    std::is_convertible_v<std::decay_t<DefineT>*, DefineNode*>,
+                bool> = true,
+            typename VarDeclVec = std::vector<VarDeclT>,
+            typename DefineVec = std::vector<DefineT>>
+  static FunctionNodePtr create(std::string name, VarDeclVec&& args,
+                                DefineVec&& defines,
+                                std::vector<AxisInfo> axes_info,
                                 std::shared_ptr<StmtNode> body) {
     return std::make_shared<FunctionNode>(
         name, std::forward<std::vector<VarDeclT>>(args),
-        std::forward<std::vector<DefineT>>(defines), body);
+        std::forward<std::vector<DefineT>>(defines), axes_info, body);
   }
 };
 
@@ -166,12 +192,13 @@ class DefineNode : public IrNode {
 /*
  * (NOT CONCRETE) Node representing a variable.
  */
-using VarNodePtr = std::shared_ptr<VarNode>;
 class VarNode : public IrNode {
  public:
   ~VarNode() override = default;
 
   DECLARE_FIELD(std::string, name);
+
+  virtual std::unique_ptr<VarNode> clone() const = 0;
 
  protected:
   VarNode(Kind kind, std::string name) : IrNode(kind), name_(name) {}
@@ -180,7 +207,6 @@ class VarNode : public IrNode {
 /*
  * Node representing a scalar variable.
  */
-using ScalarVarNodePtr = std::shared_ptr<ScalarVarNode>;
 class ScalarVarNode : public VarNode {
  public:
   ScalarVarNode(std::string name, Type type)
@@ -189,32 +215,44 @@ class ScalarVarNode : public VarNode {
 
   DECLARE_FIELD(Type, type);
 
-  static ScalarVarNodePtr create(std::string name, Type type) {
-    return std::make_shared<ScalarVarNode>(name, type);
+  std::unique_ptr<VarNode> clone() const override {
+    return std::make_unique<ScalarVarNode>(*this);
   }
 };
 
 /*
  * Node representing a induction variable.
  */
-using InductionVarNodePtr = std::shared_ptr<InductionVarNode>;
 class InductionVarNode : public VarNode {
  public:
+  InductionVarNode(std::string name, size_t axis, size_t tile_level)
+      : VarNode(Kind::kInductionVar, name),
+        axis_(axis),
+        tile_level_(tile_level) {}
   InductionVarNode(std::string name, size_t axis)
-      : VarNode(Kind::kInductionVar, name), axis_(axis) {}
+      : InductionVarNode(name, axis, -1) {}
   ~InductionVarNode() override = default;
 
   DECLARE_FIELD(size_t, axis);
+  DECLARE_FIELD(size_t, tile_level);
 
-  static InductionVarNodePtr create(std::string name, size_t axis) {
-    return std::make_shared<InductionVarNode>(name, axis);
+  bool operator==(const InductionVarNode& ivar) const {
+    return name() == ivar.name() && axis() == ivar.axis() &&
+           tile_level() == ivar.tile_level();
+  }
+
+  bool operator!=(const InductionVarNode& ivar) const {
+    return !(*this == ivar);
+  }
+
+  std::unique_ptr<VarNode> clone() const override {
+    return std::make_unique<InductionVarNode>(*this);
   }
 };
 
 /*
  * Node representing a tensor variable.
  */
-using TensorVarNodePtr = std::shared_ptr<TensorVarNode>;
 class TensorVarNode : public VarNode {
  public:
   TensorVarNode(std::string name, std::vector<size_t> shape)
@@ -223,33 +261,43 @@ class TensorVarNode : public VarNode {
 
   DECLARE_VEC_FIELD(size_t, shape);
 
-  static TensorVarNodePtr create(std::string name, std::vector<size_t> shape) {
-    return std::make_shared<TensorVarNode>(name, shape);
+  std::unique_ptr<VarNode> clone() const override {
+    return std::make_unique<TensorVarNode>(*this);
   }
 };
 
 /*
  * (NOT CONCRETE) Node representing a variable reference.
  */
-using VarRefNodePtr = std::shared_ptr<VarRefNode>;
 class VarRefNode : public IrNode {
  public:
   ~VarRefNode() override = default;
 
   DECLARE_FIELD(std::string, name);
 
+  virtual std::unique_ptr<VarRefNode> clone() const = 0;
+
  protected:
   VarRefNode(Kind kind, std::string name) : IrNode(kind), name_(name) {}
 };
 
-using DefaultVarRefPtr = std::shared_ptr<DefaultVarRef>;
 class DefaultVarRefNode : public VarRefNode {
  public:
-  DefaultVarRefNode(std::shared_ptr<VarNode> var)
-      : VarRefNode(Kind::kDefaultVarRef, var->name()), var_(var) {}
+  template <
+      typename VarT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<VarT>*, VarNode*>,
+                       bool> = true>
+  DefaultVarRefNode(VarT&& var)
+      : VarRefNode(Kind::kDefaultVarRef, var.name()), var_(var.clone()) {}
+  DefaultVarRefNode(std::unique_ptr<VarNode>&& var)
+      : VarRefNode(Kind::kDefaultVarRef, var->name()), var_(std::move(var)) {}
   ~DefaultVarRefNode() override = default;
 
-  DECLARE_PTR_FIELD(VarNode, var);
+  DECLARE_UNIQUE_PTR_FIELD(VarNode, var);
+
+  std::unique_ptr<VarRefNode> clone() const override {
+    return std::make_unique<DefaultVarRefNode>(var().clone());
+  }
 };
 
 /*
@@ -279,7 +327,6 @@ class IndexExpressionNode : public IrNode {
 /*
  * Node representing a tensor ref.
  */
-using TensorVarRefNodePtr = std::shared_ptr<TensorVarRefNode>;
 class TensorVarRefNode : public VarRefNode {
  public:
   TensorVarRefNode(const TensorVarNode& var,
@@ -292,9 +339,8 @@ class TensorVarRefNode : public VarRefNode {
   DECLARE_FIELD(TensorVarNode, var);
   DECLARE_FIELD(IndexExpressionNode, index_expr);
 
-  static TensorVarRefNodePtr create(const TensorVarNode& var,
-                                    const IndexExpressionNode& index_expr) {
-    return std::make_shared<TensorVarRefNode>(var, index_expr);
+  std::unique_ptr<VarRefNode> clone() const override {
+    return std::make_unique<TensorVarRefNode>(*this);
   }
 };
 
@@ -303,12 +349,17 @@ class TensorVarRefNode : public VarRefNode {
  */
 class VarDeclNode : public IrNode {
  public:
-  VarDeclNode(std::shared_ptr<VarNode> var)
-      : IrNode(Kind::kVarDecl), var_(var) {}
-
+  template <
+      typename VarT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<VarT>*, VarNode*>,
+                       bool> = true>
+  VarDeclNode(VarT&& var) : IrNode(Kind::kVarDecl), var_(var.clone()) {}
   ~VarDeclNode() override = default;
 
-  DECLARE_PTR_FIELD(VarNode, var);
+  VarDeclNode(const VarDeclNode& other)
+      : IrNode(Kind::kVarDecl), var_(other.var().clone()) {}
+
+  DECLARE_UNIQUE_PTR_FIELD(VarNode, var);
 };
 
 /*
@@ -316,12 +367,18 @@ class VarDeclNode : public IrNode {
  */
 class VarLocNode : public IrNode {
  public:
-  VarLocNode(std::shared_ptr<VarRefNode> var_ref)
-      : IrNode(Kind::kVarLoc), var_ref_(var_ref) {}
-
+  template <typename VarRefT,
+            std::enable_if_t<
+                std::is_convertible_v<std::decay_t<VarRefT>*, VarRefNode*>,
+                bool> = true>
+  VarLocNode(VarRefT&& var_ref)
+      : IrNode(Kind::kVarLoc), var_ref_(var_ref.clone()) {}
   ~VarLocNode() override = default;
 
-  DECLARE_PTR_FIELD(VarRefNode, var_ref);
+  VarLocNode(const VarLocNode& other)
+      : IrNode(Kind::kVarLoc), var_ref_(other.var_ref().clone()) {}
+
+  DECLARE_UNIQUE_PTR_FIELD(VarRefNode, var_ref);
 };
 
 /*
@@ -392,13 +449,24 @@ class UnopNode : public ExprNode {
 using VarExprNodePtr = std::shared_ptr<VarExprNode>;
 class VarExprNode : public ExprNode {
  public:
-  VarExprNode(std::shared_ptr<VarRefNode> var_ref)
-      : ExprNode(Kind::kVarExpr), var_ref_(var_ref) {}
+  template <typename VarRefT,
+            std::enable_if_t<
+                std::is_convertible_v<std::decay_t<VarRefT>*, VarRefNode*>,
+                bool> = true>
+  VarExprNode(VarRefT&& var_ref)
+      : ExprNode(Kind::kVarExpr), var_ref_(var_ref.clone()) {}
   ~VarExprNode() override = default;
 
-  DECLARE_PTR_FIELD(VarRefNode, var_ref);
+  VarExprNode(const VarExprNode& other)
+      : ExprNode(Kind::kVarExpr), var_ref_(other.var_ref().clone()) {}
 
-  static VarExprNodePtr create(std::shared_ptr<VarRefNode> var_ref) {
+  DECLARE_UNIQUE_PTR_FIELD(VarRefNode, var_ref);
+
+  template <typename VarRefT,
+            std::enable_if_t<
+                std::is_convertible_v<std::decay_t<VarRefT>*, VarRefNode*>,
+                bool> = true>
+  static VarExprNodePtr create(VarRefT&& var_ref) {
     return std::make_shared<VarExprNode>(var_ref);
   }
 };
@@ -431,7 +499,8 @@ class SeqNode : public StmtNode {
 
   template <
       typename StmtT = StmtNode,
-      std::enable_if_t<std::is_convertible_v<StmtT, StmtNode>, bool> = true>
+      std::enable_if_t<std::is_convertible_v<std::decay_t<StmtT>*, StmtNode*>,
+                       bool> = true>
   static SeqNodePtr create(std::vector<std::shared_ptr<StmtT>>&& stmts) {
     return std::make_shared<StmtNode>(
         std::forward<std::vector<std::shared_ptr<StmtT>>>(stmts));
@@ -514,8 +583,21 @@ class AsgnNode : public StmtNode {
 using LoopNodePtr = std::shared_ptr<LoopNode>;
 class LoopNode : public StmtNode {
  public:
-  using Bound = std::variant<size_t, VarExprNode>;
-  using Stride = std::variant<size_t, DefineNode>;
+  struct CompositeBound {
+    using Coeff = std::variant<size_t, std::string>;
+    Coeff coeff;
+    InductionVarNode var;
+    Coeff offset;
+
+    CompositeBound(InductionVarNode var) : CompositeBound(1, var, 0) {}
+    CompositeBound(Coeff coeff, InductionVarNode var, Coeff offset)
+        : coeff(coeff), var(var), offset(offset) {}
+  };
+
+  using Bound = std::variant<size_t, CompositeBound>;
+  using Stride =
+      std::variant<size_t, std::string>;  // either inline stride, or
+                                          // referencing a `DefineNode` key.
 
   LoopNode(const InductionVarNode& induction_var, Bound lower_bound,
            Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
@@ -549,10 +631,10 @@ class LoopNode : public StmtNode {
   }
 
  protected:
-  template <
-      typename InductionVarT = InductionVarNode,
-      std::enable_if_t<std::is_convertible_v<InductionVarT, InductionVarNode>,
-                       bool> = true>
+  template <typename InductionVarT = InductionVarNode,
+            std::enable_if_t<std::is_convertible_v<std::decay_t<InductionVarT>*,
+                                                   InductionVarNode*>,
+                             bool> = true>
   LoopNode(Kind kind, InductionVarT&& induction_var, Bound lower_bound,
            Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
       : StmtNode(kind),
@@ -645,3 +727,9 @@ std::string str(LoopNode::Bound bound);
 std::string str(LoopNode::Stride stride);
 
 }  // namespace peachyir
+
+#undef DECLARE_FIELD
+#undef DECLARE_PTR_FIELD
+#undef DECLARE_UNIQUE_PTR_FIELD
+#undef DECLARE_VEC_FIELD
+#undef DECLARE_VEC_PTR_FIELD

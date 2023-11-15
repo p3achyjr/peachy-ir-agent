@@ -47,10 +47,15 @@ class IrPrinter : public IrVisitor<IrPrinter> {
     ss_ << "):\n";
     ++indent_depth_;
 
+    for (int axis = 0; axis < node.axes_info().size(); ++axis) {
+      ss_ << indents() << "| axis(" << axis << ") | = " << node.axis_len(axis)
+          << ", |T| = " << node.axis_tiles(axis) << "\n";
+    }
+
     for (const DefineNode& define : node.defines()) {
       ss_ << indents();
       visit(define);
-      ss_ << ";\n";
+      ss_ << "\n";
     }
 
     visit(node.body());

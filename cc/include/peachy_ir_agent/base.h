@@ -1,4 +1,5 @@
 #pragma once
+#include <cassert>
 #include <iostream>
 #include <sstream>
 
@@ -29,9 +30,11 @@ class LogSink {
 #define ABORT(format, ...)                 \
   do {                                     \
     {                                      \
-      char buf[1024];                      \
+      char buf[2048];                      \
       sprintf(buf, format, ##__VA_ARGS__); \
       LOG(INFO) << buf;                    \
     }                                      \
     std::abort();                          \
   } while (0);
+
+#define ASSERT assert  // syntatic sugar.

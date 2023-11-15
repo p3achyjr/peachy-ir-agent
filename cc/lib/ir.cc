@@ -119,8 +119,11 @@ std::ostream& operator<<(std::ostream& os, LoopNode::Bound bound) {
   os << std::visit(
       [](auto&& b) -> std::string {
         using T = std::decay_t<decltype(b)>;
-        if constexpr (std::is_same_v<T, VarExprNode>) {
-          return b.var_ref()->name();
+        if constexpr (std::is_same_v<T, LoopNode::CompositeBound>) {
+          std::string coeff_str = str(b.coeff);
+          std::string offset_str = str(b.coeff);
+          return (coeff_str == "1" ? "" : coeff_str + " * ") + b.var.name() +
+                 (offset_str == "0" ? "" : " + " + offset_str);
         } else {
           return std::to_string(b);
         }
@@ -134,8 +137,8 @@ std::ostream& operator<<(std::ostream& os, LoopNode::Stride stride) {
   os << std::visit(
       [](auto&& s) -> std::string {
         using T = std::decay_t<decltype(s)>;
-        if constexpr (std::is_same_v<T, DefineNode>) {
-          return s.name();
+        if constexpr (std::is_same_v<T, std::string>) {
+          return s;
         } else {
           return std::to_string(s);
         }
@@ -156,7 +159,11 @@ std::ostream& operator<<(std::ostream& os, const ScalarVarNode& node) {
 }
 
 std::ostream& operator<<(std::ostream& os, const InductionVarNode& node) {
-  os << node.name() << ": axis(" << node.axis() << ")";
+  std::string name =
+      node.tile_level() == -1
+          ? node.name()
+          : node.name() + ".T(" + std::to_string(node.tile_level()) + ")";
+  os << name << ": axis(" << node.axis() << ")";
   return os;
 }
 

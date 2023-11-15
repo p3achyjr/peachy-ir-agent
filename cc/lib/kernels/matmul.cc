@@ -13,9 +13,9 @@ FunctionNodePtr matmulIr(size_t m, size_t n, size_t k, std::string name) {
   //     loop "j" (0, N) 1 in
   //       loop "k" (0, K) 1 in
   //         C[i, j] = C[i, j] + A[i, k] * B[k, j]
-  TensorVarNodePtr c_var = TensorVarNode::create("C", {m, n});
-  TensorVarNodePtr a_var = TensorVarNode::create("A", {m, k});
-  TensorVarNodePtr b_var = TensorVarNode::create("B", {k, n});
+  TensorVarNode c_var("C", {m, n});
+  TensorVarNode a_var("A", {m, k});
+  TensorVarNode b_var("B", {k, n});
 
   // Axes.
   InductionVarNode i_axis("i", 0);
@@ -31,17 +31,14 @@ FunctionNodePtr matmulIr(size_t m, size_t n, size_t k, std::string name) {
                                IndexExpressionNode::AxisIndex(j_axis)});
 
   // RHS of accumulator.
-  VarExprNodePtr c_ref =
-      VarExprNode::create(TensorVarRefNode::create(*c_var, c_index));
-  VarExprNodePtr a_ref =
-      VarExprNode::create(TensorVarRefNode::create(*a_var, a_index));
-  VarExprNodePtr b_ref =
-      VarExprNode::create(TensorVarRefNode::create(*b_var, b_index));
+  VarExprNodePtr c_ref = VarExprNode::create(TensorVarRefNode(c_var, c_index));
+  VarExprNodePtr a_ref = VarExprNode::create(TensorVarRefNode(a_var, a_index));
+  VarExprNodePtr b_ref = VarExprNode::create(TensorVarRefNode(b_var, b_index));
   BinopNodePtr prod = BinopNode::create(a_ref, BinopNode::OpCode::kMul, b_ref);
   BinopNodePtr accum = BinopNode::create(c_ref, BinopNode::OpCode::kAdd, prod);
 
   // LHS of accumulator.
-  VarLocNode asgn_loc(TensorVarRefNode::create(*c_var, c_index));
+  VarLocNode asgn_loc(TensorVarRefNode(c_var, c_index));
 
   // Accum.
   AsgnNodePtr c_asgn = AsgnNode::create(asgn_loc, accum);
@@ -58,7 +55,7 @@ FunctionNodePtr matmulIr(size_t m, size_t n, size_t k, std::string name) {
   // Function.
   return FunctionNode::create(
       name, {VarDeclNode(c_var), VarDeclNode(a_var), VarDeclNode(b_var)}, {},
-      i_loop);
+      {{m, 0}, {n, 0}, {k, 0}}, i_loop);
 }
 
 }  // namespace kernels
