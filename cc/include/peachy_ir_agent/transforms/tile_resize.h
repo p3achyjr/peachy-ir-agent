@@ -6,11 +6,11 @@
 namespace peachyir {
 
 /*
- * Tiles a loop on a single axis one level.
+ * Multiples a single tile size by 2.
  */
-class TileTransform {
+class TileResizeTransform {
  public:
-  static constexpr char kName[] = "tile";
+  static constexpr char kName[] = "tile_resize";
   static TransformResult apply(FunctionNodePtr ir, const IrNode& node);
 };
 

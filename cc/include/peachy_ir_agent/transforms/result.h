@@ -1,15 +1,21 @@
 #pragma once
 
+#include <iostream>
 #include <sstream>
 #include <string>
 
+#include "peachy_ir_agent/ir.h"
+
 namespace peachyir {
-struct Result {
-  Result(bool satisfies) : satisfies(satisfies) {}
-  Result(bool satisfies, std::string error_msg)
-      : satisfies(satisfies), error_msg(error_msg) {}
+struct TransformResult {
+  TransformResult(bool satisfies) : satisfies(satisfies) {}
+  TransformResult(std::string error_msg)
+      : satisfies(false), error_msg(error_msg) {}
+  explicit TransformResult(FunctionNodePtr ir) : satisfies(true), ir(ir) {}
+
   bool satisfies;
   std::string error_msg;
+  FunctionNodePtr ir;
 
   operator bool() { return satisfies; }
 };

@@ -8,3 +8,4 @@ endfunction()
 
 create_test(ir_test)
 create_test(tile_test)
+create_test(tile_resize_test)

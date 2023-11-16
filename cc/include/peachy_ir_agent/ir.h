@@ -137,8 +137,8 @@ class FunctionNode : public IrNode {
                 std::is_convertible_v<std::decay_t<VarDeclT>*, VarDeclNode*> &&
                     std::is_convertible_v<std::decay_t<DefineT>*, DefineNode*>,
                 bool> = true,
-            typename VarDeclVec = std::vector<VarDeclT>,
-            typename DefineVec = std::vector<DefineT>>
+            typename VarDeclVec = std::vector<std::decay_t<VarDeclT>>,
+            typename DefineVec = std::vector<std::decay_t<DefineT>>>
   FunctionNode(std::string name, VarDeclVec&& args, DefineVec&& defines,
                std::vector<AxisInfo> axes_info, std::shared_ptr<StmtNode> body)
       : IrNode(Kind::kFunction),
@@ -164,15 +164,15 @@ class FunctionNode : public IrNode {
                 std::is_convertible_v<std::decay_t<VarDeclT>*, VarDeclNode*> &&
                     std::is_convertible_v<std::decay_t<DefineT>*, DefineNode*>,
                 bool> = true,
-            typename VarDeclVec = std::vector<VarDeclT>,
-            typename DefineVec = std::vector<DefineT>>
+            typename VarDeclVec = std::vector<std::decay_t<VarDeclT>>,
+            typename DefineVec = std::vector<std::decay_t<DefineT>>>
   static FunctionNodePtr create(std::string name, VarDeclVec&& args,
                                 DefineVec&& defines,
                                 std::vector<AxisInfo> axes_info,
                                 std::shared_ptr<StmtNode> body) {
-    return std::make_shared<FunctionNode>(
-        name, std::forward<std::vector<VarDeclT>>(args),
-        std::forward<std::vector<DefineT>>(defines), axes_info, body);
+    return std::make_shared<FunctionNode>(name, std::forward<VarDeclVec>(args),
+                                          std::forward<DefineVec>(defines),
+                                          axes_info, body);
   }
 };
 

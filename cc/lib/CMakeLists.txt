@@ -1,4 +1,13 @@
-set(SOURCES ir.cc kernels/matmul.cc transforms/tile.cc)
+set(
+  SOURCES
+  ir.cc
+  kernels/matmul.cc
+  transforms/enclosing_loop_stride_finder.cc
+  transforms/tile_common.cc
+  transforms/tile_resize.cc
+  transforms/tile.cc
+  transforms/util.cc
+)
 
 add_library(peachy_ir_agent ${SOURCES})
 target_include_directories(peachy_ir_agent PUBLIC ${PROJECT_SOURCE_DIR}/include)
