@@ -160,7 +160,7 @@ class PathCopyVisitor {
                                    body_result);
   }
 
-  PtrResult<ParLoopNode> visit(std::shared_ptr<ParLoopNode> node) {
+  PtrResult<LoopNode> visit(std::shared_ptr<ParLoopNode> node) {
     visitor()->visitParLoop(*node);
     UniquePtrResult<InductionVarNode> induction_var_result =
         visitor()->visit(node->induction_var());
@@ -395,13 +395,13 @@ class PathCopyVisitor {
                                node->stride(), extract(body_result)));
   }
 
-  PtrResult<ParLoopNode> completeParLoop(
+  PtrResult<LoopNode> completeParLoop(
       std::shared_ptr<ParLoopNode> node,
       UniquePtrResult<InductionVarNode>&& induction_var_result,
       PtrResult<StmtNode> body_result) {
     RETURN_ORIGINAL_IF_UNCHANGED(PtrResult<ParLoopNode>, node,
                                  induction_var_result.changed, body_result);
-    return PtrResult<ParLoopNode>(
+    return PtrResult<LoopNode>(
         true, ParLoopNode::create(*(induction_var_result.node),
                                   node->lower_bound(), node->upper_bound(),
                                   node->stride(), extract(body_result)));

@@ -6,6 +6,7 @@ set(
   transforms/tile_common.cc
   transforms/tile_resize.cc
   transforms/tile.cc
+  transforms/reorder.cc
   transforms/util.cc
 )
 
