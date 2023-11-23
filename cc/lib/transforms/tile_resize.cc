@@ -10,9 +10,8 @@ namespace peachyir {
 namespace {
 
 TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
-  if (node.kind() != IrNode::Kind::kLoop &&
-      node.kind() != IrNode::Kind::kParLoop) {
-    return errorMsg("`%s` Expected `kLoop` or `kParLoop`, got `%s`",
+  if (node.kind() != IrNode::Kind::kLoop) {
+    return errorMsg("`%s` Expected `kLoop`, got `%s`",
                     TileResizeTransform::kName, str(node.kind()).c_str());
   }
 

@@ -37,18 +37,13 @@ class TileRewriter : public PathCopyVisitor<TileRewriter> {
   }
 
   PtrResult<LoopNode> completeLoop(
-      LoopNodePtr node, UniquePtrResult<InductionVarNode> induction_var_result,
+      LoopNodePtr node,
+      UniquePtrResult<InductionVarNode>&& induction_var_result,
       PtrResult<StmtNode> body_result) {
-    bool did_change = changed(induction_var_result.changed, body_result);
-    if (did_change) {
-      // It's impossible for two loops to get tiled.
-      return PtrResult<LoopNode>{
-          true, LoopNode::create(*(induction_var_result.node),
-                                 node->lower_bound(), node->upper_bound(),
-                                 node->stride(), extract(body_result))};
-    } else if (node->induction_var() != loop_node_.induction_var()) {
+    if (node->induction_var() != loop_node_.induction_var()) {
       // This is not the loop we want to tile.
-      return PtrResult<LoopNode>{false, node};
+      return PathCopyVisitor<TileRewriter>::completeLoop(
+          node, std::move(induction_var_result), body_result);
     }
 
     // This is the loop we want to tile.
@@ -65,8 +60,9 @@ class TileRewriter : public PathCopyVisitor<TileRewriter> {
     LoopNode::Bound inner_ub =
         LoopNode::CompositeBound(1, outer_ivar, define_name_);
 
-    LoopNodePtr inner_loop = LoopNode::create(
-        inner_ivar, inner_lb, inner_ub, node->stride(), extract(body_result));
+    LoopNodePtr inner_loop =
+        LoopNode::create(inner_ivar, inner_lb, inner_ub, node->stride(),
+                         extract(body_result), node->is_parallel());
     LoopNodePtr outer_loop = LoopNode::create(outer_ivar, outer_lb, outer_ub,
                                               outer_stride, inner_loop);
     return PtrResult<LoopNode>{true, outer_loop};

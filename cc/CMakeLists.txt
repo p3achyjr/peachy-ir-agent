@@ -9,5 +9,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
   set(CMAKE_CXX_STANDARD 17)
 endif()
 
+enable_testing()
+
 add_subdirectory(lib)
 add_subdirectory(test)

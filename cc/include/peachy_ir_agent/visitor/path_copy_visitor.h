@@ -124,6 +124,11 @@ class PathCopyVisitor {
     return visitor()->completeVarExpr(node, visitor()->visit(node->var_ref()));
   }
 
+  PtrResult<ConstNode> visit(std::shared_ptr<ConstNode> node) {
+    visitor()->visitConst(*node);
+    return visitor()->completeConst(node);
+  }
+
   PtrResult<SeqNode> visit(std::shared_ptr<SeqNode> node) {
     visitor()->visitSeq(*node);
     std::vector<PtrResult<StmtNode>> stmt_results;
@@ -160,15 +165,6 @@ class PathCopyVisitor {
                                    body_result);
   }
 
-  PtrResult<LoopNode> visit(std::shared_ptr<ParLoopNode> node) {
-    visitor()->visitParLoop(*node);
-    UniquePtrResult<InductionVarNode> induction_var_result =
-        visitor()->visit(node->induction_var());
-    PtrResult<StmtNode> body_result = visitor()->visit(node->body());
-    return visitor()->completeParLoop(node, std::move(induction_var_result),
-                                      body_result);
-  }
-
   PtrResult<CriticalSectionNode> visit(
       std::shared_ptr<CriticalSectionNode> node) {
     visitor()->visitCriticalSection(*node);
@@ -186,6 +182,8 @@ class PathCopyVisitor {
         return visitor()->visit(std::static_pointer_cast<UnopNode>(node));
       case IrNode::Kind::kVarExpr:
         return visitor()->visit(std::static_pointer_cast<VarExprNode>(node));
+      case IrNode::Kind::kConst:
+        return visitor()->visit(std::static_pointer_cast<ConstNode>(node));
       default:
         ABORT("Invalid ExprNode. OpCode: `%s`", str(node->kind()).c_str());
     }
@@ -203,8 +201,6 @@ class PathCopyVisitor {
         return visitor()->visit(std::static_pointer_cast<AsgnNode>(node));
       case IrNode::Kind::kLoop:
         return visitor()->visit(std::static_pointer_cast<LoopNode>(node));
-      case IrNode::Kind::kParLoop:
-        return visitor()->visit(std::static_pointer_cast<ParLoopNode>(node));
       default:
         ABORT("Invalid StmtNode. OpCode: `%s`", str(node->kind()).c_str());
     }
@@ -310,13 +306,13 @@ class PathCopyVisitor {
   void visitBinop(const BinopNode& node) { DELEGATE(Expr, ExprNode); }
   void visitUnop(const UnopNode& node) { DELEGATE(Expr, ExprNode); }
   void visitVarExpr(const VarExprNode& node) { DELEGATE(Expr, ExprNode); }
+  void visitConst(const ConstNode& node) { DELEGATE(Expr, ExprNode); }
   void visitStmt(const StmtNode& node) { DELEGATE(IrNode, IrNode); }
   void visitSeq(const SeqNode& node) { DELEGATE(Stmt, StmtNode); }
   void visitNop(const NopNode& node) { DELEGATE(Stmt, StmtNode); }
   void visitLet(const LetNode& node) { DELEGATE(Stmt, StmtNode); }
   void visitAsgn(const AsgnNode& node) { DELEGATE(Stmt, StmtNode); }
   void visitLoop(const LoopNode& node) { DELEGATE(Stmt, StmtNode); }
-  void visitParLoop(const ParLoopNode& node) { DELEGATE(Stmt, StmtNode); }
   void visitCriticalSection(const CriticalSectionNode& node) {
     DELEGATE(Stmt, StmtNode);
   }
@@ -364,6 +360,10 @@ class PathCopyVisitor {
                                   VarExprNode::create(*(var_ref_result.node)));
   }
 
+  PtrResult<ConstNode> completeConst(std::shared_ptr<ConstNode> node) {
+    return PtrResult<ConstNode>(false, node);
+  }
+
   PtrResult<SeqNode> completeSeq(
       std::shared_ptr<SeqNode> node,
       std::vector<PtrResult<StmtNode>> stmt_results) {
@@ -390,21 +390,10 @@ class PathCopyVisitor {
     RETURN_ORIGINAL_IF_UNCHANGED(PtrResult<LoopNode>, node,
                                  induction_var_result.changed, body_result);
     return PtrResult<LoopNode>(
-        true, LoopNode::create(*(induction_var_result.node),
-                               node->lower_bound(), node->upper_bound(),
-                               node->stride(), extract(body_result)));
-  }
-
-  PtrResult<LoopNode> completeParLoop(
-      std::shared_ptr<ParLoopNode> node,
-      UniquePtrResult<InductionVarNode>&& induction_var_result,
-      PtrResult<StmtNode> body_result) {
-    RETURN_ORIGINAL_IF_UNCHANGED(PtrResult<ParLoopNode>, node,
-                                 induction_var_result.changed, body_result);
-    return PtrResult<LoopNode>(
-        true, ParLoopNode::create(*(induction_var_result.node),
-                                  node->lower_bound(), node->upper_bound(),
-                                  node->stride(), extract(body_result)));
+        true,
+        LoopNode::create(*(induction_var_result.node), node->lower_bound(),
+                         node->upper_bound(), node->stride(),
+                         extract(body_result), node->is_parallel()));
   }
 
   PtrResult<CriticalSectionNode> completeCriticalSection(

@@ -16,46 +16,16 @@ class ReorderRewriter : public PathCopyVisitor<ReorderRewriter> {
       return PathCopyVisitor<ReorderRewriter>::visit(node);
     }
 
-    // loops are equivalent.
     LoopNodePtr inner_loop = std::static_pointer_cast<LoopNode>(node->body());
     StmtNodePtr inner_body = inner_loop->body();
-
-    if (inner_loop->kind() == IrNode::Kind::kParLoop) {
-      LoopNodePtr new_inner_loop =
-          LoopNode::create(node->induction_var(), node->lower_bound(),
-                           node->upper_bound(), node->stride(), inner_body);
-      return PtrResult<LoopNode>(
-          true, ParLoopNode::create(inner_loop->induction_var(),
-                                    inner_loop->lower_bound(),
-                                    inner_loop->upper_bound(),
-                                    inner_loop->stride(), new_inner_loop));
-    } else {
-      LoopNodePtr new_inner_loop =
-          LoopNode::create(node->induction_var(), node->lower_bound(),
-                           node->upper_bound(), node->stride(), inner_body);
-      return PtrResult<LoopNode>(
-          true,
-          LoopNode::create(inner_loop->induction_var(),
-                           inner_loop->lower_bound(), inner_loop->upper_bound(),
-                           inner_loop->stride(), new_inner_loop));
-    }
-  }
-
-  PtrResult<LoopNode> visit(std::shared_ptr<ParLoopNode> node) {
-    if (node->induction_var() != loop_node_.induction_var()) {
-      return PathCopyVisitor<ReorderRewriter>::visit(node);
-    }
-
-    LoopNodePtr inner_loop = std::static_pointer_cast<LoopNode>(node->body());
-    StmtNodePtr inner_body = inner_loop->body();
-    ParLoopNodePtr new_inner_loop =
-        ParLoopNode::create(node->induction_var(), node->lower_bound(),
-                            node->upper_bound(), node->stride(), inner_body);
+    LoopNodePtr new_inner_loop = LoopNode::create(
+        node->induction_var(), node->lower_bound(), node->upper_bound(),
+        node->stride(), inner_body, node->is_parallel());
     return PtrResult<LoopNode>(
         true,
         LoopNode::create(inner_loop->induction_var(), inner_loop->lower_bound(),
                          inner_loop->upper_bound(), inner_loop->stride(),
-                         new_inner_loop));
+                         new_inner_loop, inner_loop->is_parallel()));
   }
 
   static FunctionNodePtr rewrite(FunctionNodePtr ir,
@@ -70,18 +40,15 @@ class ReorderRewriter : public PathCopyVisitor<ReorderRewriter> {
 };
 
 TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
-  if (node.kind() != IrNode::Kind::kLoop &&
-      node.kind() != IrNode::Kind::kParLoop) {
-    return errorMsg("`%s` Expected `kLoop` or `kParLoop`, got `%s`",
-                    ReorderTransform::kName, str(node.kind()).c_str());
+  if (node.kind() != IrNode::Kind::kLoop) {
+    return errorMsg("`%s` Expected `kLoop`, got `%s`", ReorderTransform::kName,
+                    str(node.kind()).c_str());
   }
 
   const LoopNode& outer_loop = static_cast<const LoopNode&>(node);
-  if (outer_loop.body()->kind() != IrNode::Kind::kLoop &&
-      outer_loop.body()->kind() != IrNode::Kind::kParLoop) {
-    return errorMsg(
-        "`%s` Expected loop body to be `kLoop` or `kParLoop`, got `%s`",
-        ReorderTransform::kName, str(node.kind()).c_str());
+  if (outer_loop.body()->kind() != IrNode::Kind::kLoop) {
+    return errorMsg("`%s` Expected loop body to be `kLoop`, got `%s`",
+                    ReorderTransform::kName, str(node.kind()).c_str());
   }
 
   const LoopNode& inner_loop = static_cast<const LoopNode&>(

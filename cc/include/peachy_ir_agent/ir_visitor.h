@@ -73,6 +73,11 @@ class IrVisitor {
     visitor()->completeVarExpr(node);
   }
 
+  void visit(const ConstNode& node) {
+    visitor()->visitConst(node);
+    visitor()->completeConst(node);
+  }
+
   void visit(const SeqNode& node) {
     visitor()->visitSeq(node);
     visit(node.stmts());
@@ -104,13 +109,6 @@ class IrVisitor {
     visitor()->visit(node.induction_var());
     visitor()->visit(node.body());
     visitor()->completeLoop(node);
-  }
-
-  void visit(const ParLoopNode& node) {
-    visitor()->visitParLoop(node);
-    visitor()->visit(node.induction_var());
-    visitor()->visit(node.body());
-    visitor()->completeParLoop(node);
   }
 
   void visit(const CriticalSectionNode& node) {
@@ -173,6 +171,8 @@ class IrVisitor {
         return visitor()->visit(static_cast<const UnopNode&>(node));
       case IrNode::Kind::kVarExpr:
         return visitor()->visit(static_cast<const VarExprNode&>(node));
+      case IrNode::Kind::kConst:
+        return visitor()->visit(static_cast<const ConstNode&>(node));
       default:
         ABORT("Invalid ExprNode. OpCode: `%s`", str(node.kind()).c_str());
     }
@@ -190,8 +190,8 @@ class IrVisitor {
         return visitor()->visit(static_cast<const AsgnNode&>(node));
       case IrNode::Kind::kLoop:
         return visitor()->visit(static_cast<const LoopNode&>(node));
-      case IrNode::Kind::kParLoop:
-        return visitor()->visit(static_cast<const ParLoopNode&>(node));
+      case IrNode::Kind::kCriticalSection:
+        return visitor()->visit(static_cast<const CriticalSectionNode&>(node));
       default:
         ABORT("Invalid StmtNode. OpCode: `%s`", str(node.kind()).c_str());
     }
@@ -244,13 +244,13 @@ class IrVisitor {
   void visitBinop(const BinopNode& node) { VISIT(Expr, ExprNode); }
   void visitUnop(const UnopNode& node) { VISIT(Expr, ExprNode); }
   void visitVarExpr(const VarExprNode& node) { VISIT(Expr, ExprNode); }
+  void visitConst(const ConstNode& node) { VISIT(Expr, ExprNode); }
   void visitStmt(const StmtNode& node) { VISIT(IrNode, IrNode); }
   void visitSeq(const SeqNode& node) { VISIT(Stmt, StmtNode); }
   void visitNop(const NopNode& node) { VISIT(Stmt, StmtNode); }
   void visitLet(const LetNode& node) { VISIT(Stmt, StmtNode); }
   void visitAsgn(const AsgnNode& node) { VISIT(Stmt, StmtNode); }
   void visitLoop(const LoopNode& node) { VISIT(Stmt, StmtNode); }
-  void visitParLoop(const ParLoopNode& node) { VISIT(Stmt, StmtNode); }
   void visitCriticalSection(const CriticalSectionNode& node) {
     VISIT(Stmt, StmtNode);
   }
@@ -283,13 +283,13 @@ class IrVisitor {
   void completeBinop(const BinopNode& node) { COMPLETE(Expr, ExprNode); }
   void completeUnop(const UnopNode& node) { COMPLETE(Expr, ExprNode); }
   void completeVarExpr(const VarExprNode& node) { COMPLETE(Expr, ExprNode); }
+  void completeConst(const ConstNode& node) { COMPLETE(Expr, ExprNode); }
   void completeStmt(const StmtNode& node) { COMPLETE(IrNode, IrNode); }
   void completeSeq(const SeqNode& node) { COMPLETE(Stmt, StmtNode); }
   void completeNop(const NopNode& node) { COMPLETE(Stmt, StmtNode); }
   void completeLet(const LetNode& node) { COMPLETE(Stmt, StmtNode); }
   void completeAsgn(const AsgnNode& node) { COMPLETE(Stmt, StmtNode); }
   void completeLoop(const LoopNode& node) { COMPLETE(Stmt, StmtNode); }
-  void completeParLoop(const ParLoopNode& node) { COMPLETE(Stmt, StmtNode); }
   void completeCriticalSection(const CriticalSectionNode& node) {
     COMPLETE(Stmt, StmtNode);
   }

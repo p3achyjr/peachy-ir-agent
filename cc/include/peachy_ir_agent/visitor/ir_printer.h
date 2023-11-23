@@ -4,14 +4,6 @@
 
 #include "peachy_ir_agent/ir_visitor.h"
 
-#define PRINT_NAME_AND_RETURN_IF_IN_EXPR(var) \
-  do {                                        \
-    if (current_scope_ == Scope::kExpr) {     \
-      ss_ << var.name();                      \
-      return;                                 \
-    }                                         \
-  } while (0);
-
 namespace peachyir {
 
 class IrPrinter : public IrVisitor<IrPrinter> {
@@ -89,12 +81,19 @@ class IrPrinter : public IrVisitor<IrPrinter> {
   void visitDefine(const DefineNode& node) { ss_ << node; }
 
   void visitScalarVar(const ScalarVarNode& node) {
-    PRINT_NAME_AND_RETURN_IF_IN_EXPR(node);
+    if (current_scope_ == Scope::kExpr || current_scope_ == Scope::kLoc) {
+      ss_ << node.name();
+      return;
+    }
     ss_ << node;
   }
 
   void visitInductionVar(const InductionVarNode& node) {
-    PRINT_NAME_AND_RETURN_IF_IN_EXPR(node);
+    if (current_scope_ == Scope::kExpr) {
+      ss_ << node.name();
+      return;
+    }
+
     // We should never write to induction variables. Reaching here should be
     // an error, but we will just not print anything.
   }
@@ -112,17 +111,12 @@ class IrPrinter : public IrVisitor<IrPrinter> {
   void visitIndexExpression(const IndexExpressionNode& node) { ss_ << node; }
   void visitUnop(const UnopNode& node) { ss_ << node.op(); }
   void visitVarExpr(const VarExprNode& node) { current_scope_ = Scope::kExpr; }
-  void visitLoop(const LoopNode& node) {
-    ss_ << indents() << "loop " << node.induction_var() << " in ("
-        << node.lower_bound() << ", " << node.upper_bound() << ") "
-        << node.stride() << ":\n";
-    ++indent_depth_;
-  }
+  void visitConst(const ConstNode& node) { ss_ << node; }
 
-  void visitParLoop(const ParLoopNode& node) {
-    ss_ << indents() << "parallel " << node.induction_var() << " in ("
-        << node.lower_bound() << ", " << node.upper_bound() << ") "
-        << node.stride() << ":\n";
+  void visitLoop(const LoopNode& node) {
+    ss_ << indents() << (node.is_parallel() ? "parallel " : "loop ")
+        << node.induction_var() << " in (" << node.lower_bound() << ", "
+        << node.upper_bound() << ") " << node.stride() << ":\n";
     ++indent_depth_;
   }
 
@@ -133,7 +127,6 @@ class IrPrinter : public IrVisitor<IrPrinter> {
 
   void completeFunction(const FunctionNode& node) { --indent_depth_; }
   void completeLoop(const LoopNode& node) { --indent_depth_; }
-  void completeParLoop(const ParLoopNode& node) { --indent_depth_; }
   void completeCriticalSection(const CriticalSectionNode& node) {
     --indent_depth_;
   }

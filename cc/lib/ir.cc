@@ -47,6 +47,9 @@ std::ostream& operator<<(std::ostream& os, IrNode::Kind kind) {
     case IrNode::Kind::kVarExpr:
       os << "VarExpr";
       break;
+    case IrNode::Kind::kConst:
+      os << "Const";
+      break;
     case IrNode::Kind::kSeq:
       os << "Seq";
       break;
@@ -61,9 +64,6 @@ std::ostream& operator<<(std::ostream& os, IrNode::Kind kind) {
       break;
     case IrNode::Kind::kLoop:
       os << "Loop";
-      break;
-    case IrNode::Kind::kParLoop:
-      os << "ParLoop";
       break;
     case IrNode::Kind::kCriticalSection:
       os << "CriticalSection";
@@ -204,6 +204,16 @@ std::ostream& operator<<(std::ostream& os, const IndexExpressionNode& node) {
 }
 
 std::ostream& operator<<(std::ostream& os, const NopNode& node) { return os; }
+
+std::ostream& operator<<(std::ostream& os, const ConstNode& node) {
+  if (node.type() == Type::kFloat) {
+    os << node.val();
+  } else {
+    os << static_cast<size_t>(node.val());
+  }
+
+  return os;
+}
 
 // String functions.
 

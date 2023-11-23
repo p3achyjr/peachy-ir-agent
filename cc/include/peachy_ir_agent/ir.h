@@ -59,13 +59,13 @@ class ExprNode;
 class BinopNode;
 class UnopNode;
 class VarExprNode;
+class ConstNode;
 class StmtNode;
 class SeqNode;
 class NopNode;
 class LetNode;
 class AsgnNode;
 class LoopNode;
-class ParLoopNode;
 class CriticalSectionNode;
 
 /*
@@ -93,13 +93,13 @@ class IrNode {
     kBinop,
     kUnop,
     kVarExpr,  // Usage of variable in expression.
+    kConst,
     // Statements.
     kSeq,
     kNop,
     kLet,
     kAsgn,
     kLoop,
-    kParLoop,
 
     //
     // Allowed in LLIR (IR used for codegen).
@@ -140,13 +140,15 @@ class FunctionNode : public IrNode {
             typename VarDeclVec = std::vector<std::decay_t<VarDeclT>>,
             typename DefineVec = std::vector<std::decay_t<DefineT>>>
   FunctionNode(std::string name, VarDeclVec&& args, DefineVec&& defines,
-               std::vector<AxisInfo> axes_info, std::shared_ptr<StmtNode> body)
+               std::vector<AxisInfo> axes_info, std::shared_ptr<StmtNode> body,
+               bool is_parallel)
       : IrNode(Kind::kFunction),
         name_(name),
         args_(args),
         defines_(defines),
         axes_info_(axes_info),
-        body_(body) {}
+        body_(body),
+        is_parallel_(is_parallel) {}
 
   ~FunctionNode() override = default;
 
@@ -155,6 +157,7 @@ class FunctionNode : public IrNode {
   DECLARE_VEC_FIELD(DefineNode, defines);
   DECLARE_VEC_FIELD(AxisInfo, axes_info);
   DECLARE_PTR_FIELD(StmtNode, body);
+  DECLARE_FIELD(bool, is_parallel);
 
   inline size_t axis_len(size_t axis) const { return axes_info_[axis].length; }
   inline size_t axis_tiles(size_t axis) const { return axes_info_[axis].tiles; }
@@ -169,10 +172,11 @@ class FunctionNode : public IrNode {
   static FunctionNodePtr create(std::string name, VarDeclVec&& args,
                                 DefineVec&& defines,
                                 std::vector<AxisInfo> axes_info,
-                                std::shared_ptr<StmtNode> body) {
+                                std::shared_ptr<StmtNode> body,
+                                bool is_parallel = false) {
     return std::make_shared<FunctionNode>(name, std::forward<VarDeclVec>(args),
                                           std::forward<DefineVec>(defines),
-                                          axes_info, body);
+                                          axes_info, body, is_parallel);
   }
 };
 
@@ -225,7 +229,7 @@ class ScalarVarNode : public VarNode {
  */
 class InductionVarNode : public VarNode {
  public:
-  InductionVarNode(std::string name, size_t axis, size_t tile_level)
+  InductionVarNode(std::string name, size_t axis, int tile_level)
       : VarNode(Kind::kInductionVar, name),
         axis_(axis),
         tile_level_(tile_level) {}
@@ -234,7 +238,7 @@ class InductionVarNode : public VarNode {
   ~InductionVarNode() override = default;
 
   DECLARE_FIELD(size_t, axis);
-  DECLARE_FIELD(size_t, tile_level);
+  DECLARE_FIELD(int, tile_level);
 
   bool operator==(const InductionVarNode& ivar) const {
     return name() == ivar.name() && axis() == ivar.axis() &&
@@ -315,6 +319,12 @@ class IndexExpressionNode : public IrNode {
     AxisIndex(InductionVarNode var) : AxisIndex(1, var, 0) {}
     AxisIndex(int coeff, InductionVarNode var, int offset)
         : coeff(coeff), var(var), offset(offset) {}
+
+    bool operator==(const AxisIndex& other) const {
+      return coeff == other.coeff && offset == other.offset && var == other.var;
+    }
+
+    bool operator!=(const AxisIndex& other) const { return !(*this == other); }
   };
 
   IndexExpressionNode(std::vector<AxisIndex> axis_indices)
@@ -322,6 +332,14 @@ class IndexExpressionNode : public IrNode {
   ~IndexExpressionNode() override = default;
 
   DECLARE_VEC_FIELD(AxisIndex, axis_indices);
+
+  bool operator==(const IndexExpressionNode& node) const {
+    return axis_indices_ == node.axis_indices();
+  }
+
+  bool operator!=(const IndexExpressionNode& other) const {
+    return !(*this == other);
+  }
 };
 
 /*
@@ -338,6 +356,11 @@ class TensorVarRefNode : public VarRefNode {
 
   DECLARE_FIELD(TensorVarNode, var);
   DECLARE_FIELD(IndexExpressionNode, index_expr);
+
+  bool operator==(const TensorVarRefNode& other) const {
+    return var().name() == other.var().name() &&
+           index_expr() == other.index_expr();
+  }
 
   std::unique_ptr<VarRefNode> clone() const override {
     return std::make_unique<TensorVarRefNode>(*this);
@@ -472,6 +495,23 @@ class VarExprNode : public ExprNode {
 };
 
 /*
+ * Node representing a constant.
+ */
+using ConstNodePtr = std::shared_ptr<ConstNode>;
+class ConstNode : public ExprNode {
+ public:
+  ConstNode(Type ty, float x) : ExprNode(Kind::kConst), type_(ty), val_(x) {}
+  ~ConstNode() override = default;
+
+  DECLARE_FIELD(Type, type);
+  DECLARE_FIELD(float, val);
+
+  static ConstNodePtr create(Type ty, float x) {
+    return std::make_shared<ConstNode>(ty, x);
+  }
+};
+
+/*
  * (NOT CONCRETE) Node representing a statement.
  */
 using StmtNodePtr = std::shared_ptr<StmtNode>;
@@ -489,9 +529,9 @@ class StmtNode : public IrNode {
 using SeqNodePtr = std::shared_ptr<SeqNode>;
 class SeqNode : public StmtNode {
  public:
-  SeqNode(const std::vector<std::shared_ptr<StmtNode>>& stmts)
+  SeqNode(const std::vector<StmtNodePtr>& stmts)
       : StmtNode(Kind::kSeq), stmts_(stmts) {}
-  SeqNode(std::vector<std::shared_ptr<StmtNode>>&& stmts)
+  SeqNode(std::vector<StmtNodePtr>&& stmts)
       : StmtNode(Kind::kSeq), stmts_(stmts) {}
   ~SeqNode() override = default;
 
@@ -500,10 +540,10 @@ class SeqNode : public StmtNode {
   template <
       typename StmtT = StmtNode,
       std::enable_if_t<std::is_convertible_v<std::decay_t<StmtT>*, StmtNode*>,
-                       bool> = true>
-  static SeqNodePtr create(std::vector<std::shared_ptr<StmtT>>&& stmts) {
-    return std::make_shared<StmtNode>(
-        std::forward<std::vector<std::shared_ptr<StmtT>>>(stmts));
+                       bool> = true,
+      typename StmtVec = std::vector<std::shared_ptr<StmtT>>>
+  static SeqNodePtr create(StmtVec&& stmts) {
+    return std::make_shared<SeqNode>(std::forward<StmtVec>(stmts));
   }
 };
 
@@ -526,11 +566,11 @@ using LetNodePtr = std::shared_ptr<LetNode>;
 class LetNode : public StmtNode {
  public:
   LetNode(const VarDeclNode& var_decl, std::shared_ptr<ExprNode> expr,
-          std::shared_ptr<StmtNode> stmt)
-      : StmtNode(Kind::kLet), var_decl_(var_decl), expr_(expr) {}
+          std::shared_ptr<StmtNode> scope)
+      : StmtNode(Kind::kLet), var_decl_(var_decl), expr_(expr), scope_(scope) {}
   LetNode(VarDeclNode&& var_decl, std::shared_ptr<ExprNode> expr,
-          std::shared_ptr<StmtNode> stmt)
-      : StmtNode(Kind::kLet), var_decl_(var_decl), expr_(expr) {}
+          std::shared_ptr<StmtNode> scope)
+      : StmtNode(Kind::kLet), var_decl_(var_decl), expr_(expr), scope_(scope) {}
 
   ~LetNode() override = default;
 
@@ -599,14 +639,19 @@ class LoopNode : public StmtNode {
       std::variant<size_t, std::string>;  // either inline stride, or
                                           // referencing a `DefineNode` key.
 
-  LoopNode(const InductionVarNode& induction_var, Bound lower_bound,
-           Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : LoopNode(Kind::kLoop, induction_var, lower_bound, upper_bound, stride,
-                 body) {}
-  LoopNode(InductionVarNode&& induction_var, Bound lower_bound,
-           Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : LoopNode(Kind::kLoop, induction_var, lower_bound, upper_bound, stride,
-                 body) {}
+  template <typename InductionVarT = InductionVarNode,
+            std::enable_if_t<std::is_convertible_v<std::decay_t<InductionVarT>*,
+                                                   InductionVarNode*>,
+                             bool> = true>
+  LoopNode(InductionVarT&& induction_var, Bound lower_bound, Bound upper_bound,
+           Stride stride, std::shared_ptr<StmtNode> body, bool is_parallel)
+      : StmtNode(Kind::kLoop),
+        induction_var_(std::forward<InductionVarT>(induction_var)),
+        lower_bound_(lower_bound),
+        upper_bound_(upper_bound),
+        stride_(stride),
+        body_(body),
+        is_parallel_(is_parallel) {}
 
   ~LoopNode() override = default;
 
@@ -615,65 +660,28 @@ class LoopNode : public StmtNode {
   DECLARE_FIELD(Bound, upper_bound);
   DECLARE_FIELD(Stride, stride);
   DECLARE_PTR_FIELD(StmtNode, body);
+  DECLARE_FIELD(bool, is_parallel);
 
-  static LoopNodePtr create(const InductionVarNode& induction_var,
-                            Bound lower_bound, Bound upper_bound, Stride stride,
-                            std::shared_ptr<StmtNode> body) {
-    return std::make_shared<LoopNode>(induction_var, lower_bound, upper_bound,
-                                      stride, body);
-  }
-
-  static LoopNodePtr create(InductionVarNode&& induction_var, Bound lower_bound,
+  template <typename InductionVarT = InductionVarNode,
+            std::enable_if_t<
+                std::is_same_v<std::decay_t<InductionVarT>, InductionVarNode>,
+                bool> = true>
+  static LoopNodePtr create(InductionVarT&& induction_var, Bound lower_bound,
                             Bound upper_bound, Stride stride,
                             std::shared_ptr<StmtNode> body) {
     return std::make_shared<LoopNode>(induction_var, lower_bound, upper_bound,
-                                      stride, body);
+                                      stride, body, false);
   }
 
- protected:
   template <typename InductionVarT = InductionVarNode,
-            std::enable_if_t<std::is_convertible_v<std::decay_t<InductionVarT>*,
-                                                   InductionVarNode*>,
-                             bool> = true>
-  LoopNode(Kind kind, InductionVarT&& induction_var, Bound lower_bound,
-           Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : StmtNode(kind),
-        induction_var_(std::forward<InductionVarT>(induction_var)),
-        lower_bound_(lower_bound),
-        upper_bound_(upper_bound),
-        stride_(stride),
-        body_(body) {}
-};
-
-/*
- * Node representing a parallel loop.
- */
-using ParLoopNodePtr = std::shared_ptr<ParLoopNode>;
-class ParLoopNode : public LoopNode {
- public:
-  ParLoopNode(const InductionVarNode& induction_var, Bound lower_bound,
-              Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : LoopNode(Kind::kParLoop, induction_var, lower_bound, upper_bound,
-                 stride, body) {}
-  ParLoopNode(InductionVarNode&& induction_var, Bound lower_bound,
-              Bound upper_bound, Stride stride, std::shared_ptr<StmtNode> body)
-      : LoopNode(Kind::kParLoop, induction_var, lower_bound, upper_bound,
-                 stride, body) {}
-
-  ~ParLoopNode() override = default;
-
-  static ParLoopNodePtr create(const InductionVarNode& induction_var,
-                               Bound lower_bound, Bound upper_bound,
-                               Stride stride, std::shared_ptr<StmtNode> body) {
-    return std::make_shared<ParLoopNode>(induction_var, lower_bound,
-                                         upper_bound, stride, body);
-  }
-
-  static ParLoopNodePtr create(InductionVarNode&& induction_var,
-                               Bound lower_bound, Bound upper_bound,
-                               Stride stride, std::shared_ptr<StmtNode> body) {
-    return std::make_shared<ParLoopNode>(induction_var, lower_bound,
-                                         upper_bound, stride, body);
+            std::enable_if_t<
+                std::is_same_v<std::decay_t<InductionVarT>, InductionVarNode>,
+                bool> = true>
+  static LoopNodePtr create(InductionVarT&& induction_var, Bound lower_bound,
+                            Bound upper_bound, Stride stride,
+                            std::shared_ptr<StmtNode> body, bool is_parallel) {
+    return std::make_shared<LoopNode>(induction_var, lower_bound, upper_bound,
+                                      stride, body, is_parallel);
   }
 };
 
@@ -717,6 +725,7 @@ std::ostream& operator<<(std::ostream& os, const InductionVarNode& node);
 std::ostream& operator<<(std::ostream& os, const TensorVarNode& node);
 std::ostream& operator<<(std::ostream& os, const IndexExpressionNode& node);
 std::ostream& operator<<(std::ostream& os, const NopNode& node);
+std::ostream& operator<<(std::ostream& os, const ConstNode& node);
 
 // string cast for enums.
 std::string str(IrNode::Kind kind);
@@ -726,7 +735,57 @@ std::string str(UnopNode::OpCode op);
 std::string str(LoopNode::Bound bound);
 std::string str(LoopNode::Stride stride);
 
+template <typename T>
+void hash_combine(size_t& seed, const T& v) {
+  std::hash<T> hash;
+  seed ^= hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+template <typename Tuple, size_t... Index>
+size_t tuple_hash(const Tuple& tuple, std::index_sequence<Index...>) {
+  size_t seed = 0;
+  (..., hash_combine(seed, std::get<Index>(tuple)));
+  return seed;
+}
+
+template <typename... T>
+size_t tuple_hash(const std::tuple<T...>& tuple) {
+  return tuple_hash(tuple, std::index_sequence_for<T...>{});
+}
 }  // namespace peachyir
+
+namespace std {
+template <>
+struct hash<peachyir::IndexExpressionNode::AxisIndex> {
+  size_t operator()(const peachyir::IndexExpressionNode::AxisIndex& x) const {
+    auto hash_elems = std::tie(x.coeff, x.var.name(), x.var.axis(),
+                               x.var.tile_level(), x.offset);
+    return peachyir::tuple_hash(hash_elems);
+  }
+};
+
+template <>
+struct hash<peachyir::IndexExpressionNode> {
+  size_t operator()(const peachyir::IndexExpressionNode& x) const {
+    size_t seed = 0;
+    for (const auto& axis_index : x.axis_indices()) {
+      seed ^= peachyir::tuple_hash(std::tie(
+          axis_index.coeff, axis_index.var.name(), axis_index.var.axis(),
+          axis_index.var.tile_level(), axis_index.offset));
+    }
+
+    return seed;
+  }
+};
+
+template <>
+struct hash<peachyir::TensorVarRefNode> {
+  size_t operator()(const peachyir::TensorVarRefNode& x) const {
+    auto hash_elems = std::tie(x.var().name(), x.index_expr());
+    return peachyir::tuple_hash(hash_elems);
+  }
+};
+}  // namespace std
 
 #undef DECLARE_FIELD
 #undef DECLARE_PTR_FIELD
