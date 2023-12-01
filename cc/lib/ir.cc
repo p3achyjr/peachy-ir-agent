@@ -9,64 +9,64 @@ namespace peachyir {
 std::ostream& operator<<(std::ostream& os, IrNode::Kind kind) {
   switch (kind) {
     case IrNode::Kind::kFunction:
-      os << "Function";
+      os << "kFunction";
       break;
     case IrNode::Kind::kDefine:
-      os << "Define";
+      os << "kDefine";
       break;
     case IrNode::Kind::kScalarVar:
-      os << "ScalarVar";
+      os << "kScalarVar";
       break;
     case IrNode::Kind::kInductionVar:
-      os << "InductionVar";
+      os << "kInductionVar";
       break;
     case IrNode::Kind::kTensorVar:
-      os << "TensorVar";
+      os << "kTensorVar";
       break;
     case IrNode::Kind::kVarDecl:
-      os << "VarDecl";
+      os << "kVarDecl";
       break;
     case IrNode::Kind::kVarLoc:
-      os << "VarLoc";
+      os << "kVarLoc";
       break;
     case IrNode::Kind::kDefaultVarRef:
-      os << "DefaultVarRef";
+      os << "kDefaultVarRef";
       break;
     case IrNode::Kind::kTensorVarRef:
-      os << "TensorVarRef";
+      os << "kTensorVarRef";
       break;
     case IrNode::Kind::kIndexExpression:
-      os << "IndexExpression";
+      os << "kIndexExpression";
       break;
     case IrNode::Kind::kBinop:
-      os << "Binop";
+      os << "kBinop";
       break;
     case IrNode::Kind::kUnop:
-      os << "Unop";
+      os << "kUnop";
       break;
     case IrNode::Kind::kVarExpr:
-      os << "VarExpr";
+      os << "kVarExpr";
       break;
     case IrNode::Kind::kConst:
-      os << "Const";
+      os << "kConst";
       break;
     case IrNode::Kind::kSeq:
-      os << "Seq";
+      os << "kSeq";
       break;
     case IrNode::Kind::kNop:
-      os << "Nop";
+      os << "kNop";
       break;
     case IrNode::Kind::kLet:
-      os << "Let";
+      os << "kLet";
       break;
     case IrNode::Kind::kAsgn:
-      os << "Asgn";
+      os << "kAsgn";
       break;
     case IrNode::Kind::kLoop:
-      os << "Loop";
+      os << "kLoop";
       break;
     case IrNode::Kind::kCriticalSection:
-      os << "CriticalSection";
+      os << "kCriticalSection";
       break;
   }
 

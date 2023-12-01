@@ -16,6 +16,9 @@ struct Vars {
   std::unordered_set<std::string> tensor_vars;
 };
 
+/*
+ * Find writes that currently induce race conditions.
+ */
 class UnsynchronizedWriteFinder : public IrVisitor<UnsynchronizedWriteFinder> {
  public:
   UnsynchronizedWriteFinder()
@@ -118,26 +121,15 @@ class UnsynchronizedWriteFinder : public IrVisitor<UnsynchronizedWriteFinder> {
   Scope current_scope_;
 };
 
+/*
+ * Surrounds all unprotected writes with a critical section.
+ */
 class CriticalSectionRewriter
     : public PathCopyVisitor<CriticalSectionRewriter> {
  public:
   using PathCopyVisitor<CriticalSectionRewriter>::visit;
   CriticalSectionRewriter(const Vars& vars_need_sync)
       : vars_need_sync_(vars_need_sync) {}
-
-  void visitDefaultVarRef(const DefaultVarRefNode& node) {
-    if (vars_need_sync_.scalar_vars.find(node.name()) !=
-        vars_need_sync_.scalar_vars.end()) {
-      sync_next_asgn_ = true;
-    }
-  }
-
-  void visitTensorVarRef(const TensorVarRefNode& node) {
-    if (vars_need_sync_.tensor_vars.find(node.name()) !=
-        vars_need_sync_.tensor_vars.end()) {
-      sync_next_asgn_ = true;
-    }
-  }
 
   PtrResult<StmtNode> visit(std::shared_ptr<StmtNode> node) {
     if (node->kind() != IrNode::Kind::kAsgn) {
@@ -148,10 +140,17 @@ class CriticalSectionRewriter
     PtrResult<AsgnNode> asgn_result =
         PathCopyVisitor<CriticalSectionRewriter>::visit(
             std::static_pointer_cast<AsgnNode>(node));
-    if (sync_next_asgn_) {
+    IrNode::Kind var_kind = asgn_result.node->var_loc().var_ref().kind();
+    const std::string& var_name = asgn_result.node->var_loc().var_ref().name();
+    bool sync_asgn = var_kind == IrNode::Kind::kTensorVarRef &&
+                         (vars_need_sync_.tensor_vars.find(var_name) !=
+                          vars_need_sync_.tensor_vars.end()) ||
+                     var_kind == IrNode::Kind::kDefaultVarRef &&
+                         (vars_need_sync_.scalar_vars.find(var_name) !=
+                          vars_need_sync_.scalar_vars.end());
+    if (sync_asgn) {
       PtrResult<CriticalSectionNode> result = PtrResult<CriticalSectionNode>(
           true, CriticalSectionNode::create({asgn_result.node}));
-      sync_next_asgn_ = false;
       return result;
     }
 
@@ -166,7 +165,6 @@ class CriticalSectionRewriter
 
  private:
   const Vars vars_need_sync_;
-  bool sync_next_asgn_;
 };
 
 }  // namespace

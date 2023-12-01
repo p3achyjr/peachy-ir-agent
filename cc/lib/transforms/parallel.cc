@@ -4,6 +4,7 @@
 
 #include "peachy_ir_agent/base.h"
 #include "peachy_ir_agent/visitor/path_copy_visitor.h"
+#include "util.h"
 
 namespace peachyir {
 namespace {
@@ -52,6 +53,10 @@ TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
   if (node.kind() != IrNode::Kind::kLoop) {
     return errorMsg("`%s` Expected `kLoop`, got `%s`", ParallelTransform::kName,
                     str(node.kind()).c_str());
+  }
+
+  if (eval_stride(ir, static_cast<const LoopNode&>(node)) == 1) {
+    return errorMsg("`%s` This loop is not tiled.", ParallelTransform::kName);
   }
 
   if (ir->is_parallel()) {

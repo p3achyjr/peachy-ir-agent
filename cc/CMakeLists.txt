@@ -11,5 +11,12 @@ endif()
 
 enable_testing()
 
+set(PROJECT_ROOT_DIR ${CMAKE_SOURCE_DIR})
+
 add_subdirectory(lib)
+add_subdirectory(bin)
 add_subdirectory(test)
+
+configure_file(
+  include/peachy_ir_agent/config.h.in
+  ${CMAKE_BINARY_DIR}/peachy_ir_agent/config.h)

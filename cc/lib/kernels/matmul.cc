@@ -54,8 +54,10 @@ FunctionNodePtr matmulIr(size_t m, size_t n, size_t k, std::string name) {
 
   // Function.
   return FunctionNode::create(
-      name, {VarDeclNode(c_var), VarDeclNode(a_var), VarDeclNode(b_var)}, {},
-      {{m, 0}, {n, 0}, {k, 0}}, i_loop);
+      name,
+      {VarDeclNode(c_var, true), VarDeclNode(a_var, false),
+       VarDeclNode(b_var, false)},
+      {}, {{m, 0}, {n, 0}, {k, 0}}, i_loop, false /* is_parallel */);
 }
 
 }  // namespace kernels

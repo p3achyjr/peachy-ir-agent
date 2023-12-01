@@ -48,7 +48,8 @@ TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
   const LoopNode& outer_loop = static_cast<const LoopNode&>(node);
   if (outer_loop.body()->kind() != IrNode::Kind::kLoop) {
     return errorMsg("`%s` Expected loop body to be `kLoop`, got `%s`",
-                    ReorderTransform::kName, str(node.kind()).c_str());
+                    ReorderTransform::kName,
+                    str(outer_loop.body()->kind()).c_str());
   }
 
   const LoopNode& inner_loop = static_cast<const LoopNode&>(

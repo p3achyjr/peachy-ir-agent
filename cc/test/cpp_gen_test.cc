@@ -17,8 +17,9 @@ namespace peachyir {
 
 TEST_CASE("Test Naive Matmul.") {
   static const std::string kExpectedStr =
-      "void matmul (float* restrict C /* (1024, 1024) */, float* restrict A /* "
-      "(1024, 512) */, float* restrict B /* (512, 1024) */) {\n"
+      "void matmul (float* __restrict C /* (1024, 1024) */, float* __restrict "
+      "A /* "
+      "(1024, 512) */, float* __restrict B /* (512, 1024) */) {\n"
       "  for (size_t i = 0; i < 1024; i += 1) {\n"
       "    for (size_t j = 0; j < 1024; j += 1) {\n"
       "      for (size_t k = 0; k < 512; k += 1) {\n"
@@ -34,7 +35,7 @@ TEST_CASE("Test Naive Matmul.") {
 
 TEST_CASE("Test Parallel Tiled Critical LocalAccum Matmul.") {
   static const std::string kExpectedStr =
-      R"(void matmul (float* restrict C /* (1024, 1024) */, float* restrict A /* (1024, 512) */, float* restrict B /* (512, 1024) */) {
+      R"(void matmul (float* __restrict C /* (1024, 1024) */, float* __restrict A /* (1024, 512) */, float* __restrict B /* (512, 1024) */) {
   static constexpr size_t D0 = 4;
   static constexpr size_t D1 = 4;
   static constexpr size_t D2 = 4;

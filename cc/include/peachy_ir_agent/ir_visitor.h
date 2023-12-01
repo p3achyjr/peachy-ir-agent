@@ -27,15 +27,32 @@ template <typename VisitorT>
 class IrVisitor {
  public:
   // Generic visit method for vector fields.
-  template <typename NodeT>
+  template <
+      typename NodeT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<NodeT>*, IrNode*>,
+                       bool> = true>
   void visit(const std::vector<NodeT>& v) {
     for (const NodeT& node : v) {
       visitor()->visit(node);
     }
   }
 
+  // Generic visit method for vector pointer fields.
+  template <
+      typename NodeT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<NodeT>*, IrNode*>,
+                       bool> = true>
+  void visit(const std::vector<std::shared_ptr<NodeT>>& v) {
+    for (const std::shared_ptr<NodeT> node : v) {
+      visitor()->visit(*node);
+    }
+  }
+
   // Delegation for pointer-based access.
-  template <typename NodeT>
+  template <
+      typename NodeT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<NodeT>*, IrNode*>,
+                       bool> = true>
   void visit(std::shared_ptr<NodeT> node) {
     visitor()->visit(*node);
   }

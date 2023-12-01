@@ -64,7 +64,10 @@ class PathCopyVisitor {
         : changed(other.changed), node(other.node->clone()) {}
   };
 
-  template <typename NodeT>
+  template <
+      typename NodeT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<NodeT>*, IrNode*>,
+                       bool> = true>
   struct Result {
     bool changed;
     NodeT node;
@@ -73,7 +76,10 @@ class PathCopyVisitor {
   };
 
   // Generic sequence visit methods.
-  template <typename NodeT>
+  template <
+      typename NodeT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<NodeT>*, IrNode*>,
+                       bool> = true>
   std::vector<PtrResult<NodeT>> visit(
       const std::vector<std::shared_ptr<NodeT>>& nodes) {
     std::vector<PtrResult<NodeT>> node_results;
@@ -84,7 +90,10 @@ class PathCopyVisitor {
     return node_results;
   }
 
-  template <typename NodeT>
+  template <
+      typename NodeT,
+      std::enable_if_t<std::is_convertible_v<std::decay_t<NodeT>*, IrNode*>,
+                       bool> = true>
   std::vector<Result<NodeT>> visit(const std::vector<NodeT>& nodes) {
     std::vector<Result<NodeT>> node_results;
     for (const NodeT& node : nodes) {
@@ -95,7 +104,7 @@ class PathCopyVisitor {
   }
 
   // Pointer visit methods for final types.
-  PtrResult<FunctionNode> visit(std::shared_ptr<FunctionNode> node) {
+  PtrResult<FunctionNode> visit(FunctionNodePtr node) {
     visitor()->visitFunction(*node);
     std::vector<Result<VarDeclNode>> arg_results =
         visitor()->visit(node->args());
@@ -106,41 +115,42 @@ class PathCopyVisitor {
                                        body_result);
   }
 
-  PtrResult<BinopNode> visit(std::shared_ptr<BinopNode> node) {
+  PtrResult<BinopNode> visit(BinopNodePtr node) {
     visitor()->visitBinop(*node);
     PtrResult<ExprNode> lhs_result = visitor()->visit(node->lhs());
     PtrResult<ExprNode> rhs_result = visitor()->visit(node->rhs());
     return visitor()->completeBinop(node, lhs_result, rhs_result);
   }
 
-  PtrResult<UnopNode> visit(std::shared_ptr<UnopNode> node) {
+  PtrResult<UnopNode> visit(UnopNodePtr node) {
     visitor()->visitUnop(*node);
     PtrResult<ExprNode> expr_result = visitor()->visit(node->expr());
     return visitor()->completeUnop(node, expr_result);
   }
 
-  PtrResult<VarExprNode> visit(std::shared_ptr<VarExprNode> node) {
+  PtrResult<VarExprNode> visit(VarExprNodePtr node) {
     visitor()->visitVarExpr(*node);
     return visitor()->completeVarExpr(node, visitor()->visit(node->var_ref()));
   }
 
-  PtrResult<ConstNode> visit(std::shared_ptr<ConstNode> node) {
+  PtrResult<ConstNode> visit(ConstNodePtr node) {
     visitor()->visitConst(*node);
     return visitor()->completeConst(node);
   }
 
-  PtrResult<SeqNode> visit(std::shared_ptr<SeqNode> node) {
+  PtrResult<SeqNode> visit(SeqNodePtr node) {
     visitor()->visitSeq(*node);
-    std::vector<PtrResult<StmtNode>> stmt_results;
+    std::vector<PtrResult<StmtNode>> stmt_results =
+        visitor()->visit(node->stmts());
     return visitor()->completeSeq(node, stmt_results);
   }
 
-  PtrResult<NopNode> visit(std::shared_ptr<NopNode> node) {
+  PtrResult<NopNode> visit(NopNodePtr node) {
     visitor()->visitNop(*node);
     return PtrResult<NopNode>(false, node);
   }
 
-  PtrResult<LetNode> visit(std::shared_ptr<LetNode> node) {
+  PtrResult<LetNode> visit(LetNodePtr node) {
     visitor()->visitLet(*node);
     Result<VarDeclNode> var_decl_result = visitor()->visit(node->var_decl());
     PtrResult<ExprNode> expr_result = visitor()->visit(node->expr());
@@ -149,14 +159,14 @@ class PathCopyVisitor {
                                   scope_result);
   }
 
-  PtrResult<AsgnNode> visit(std::shared_ptr<AsgnNode> node) {
+  PtrResult<AsgnNode> visit(AsgnNodePtr node) {
     visitor()->visitAsgn(*node);
     Result<VarLocNode> var_loc_result = visitor()->visit(node->var_loc());
     PtrResult<ExprNode> expr_result = visitor()->visit(node->expr());
     return visitor()->completeAsgn(node, var_loc_result, expr_result);
   }
 
-  PtrResult<LoopNode> visit(std::shared_ptr<LoopNode> node) {
+  PtrResult<LoopNode> visit(LoopNodePtr node) {
     visitor()->visitLoop(*node);
     UniquePtrResult<InductionVarNode> induction_var_result =
         visitor()->visit(node->induction_var());
@@ -165,8 +175,7 @@ class PathCopyVisitor {
                                    body_result);
   }
 
-  PtrResult<CriticalSectionNode> visit(
-      std::shared_ptr<CriticalSectionNode> node) {
+  PtrResult<CriticalSectionNode> visit(CriticalSectionNodePtr node) {
     visitor()->visitCriticalSection(*node);
     std::vector<PtrResult<AsgnNode>> critical_write_results =
         visitor()->visit(node->critical_writes());
@@ -174,7 +183,7 @@ class PathCopyVisitor {
   }
 
   // Pointer visit methods for subclassed types. Contains dispatch logic.
-  PtrResult<ExprNode> visit(std::shared_ptr<ExprNode> node) {
+  PtrResult<ExprNode> visit(ExprNodePtr node) {
     switch (node->kind()) {
       case IrNode::Kind::kBinop:
         return visitor()->visit(std::static_pointer_cast<BinopNode>(node));
@@ -329,7 +338,7 @@ class PathCopyVisitor {
     return PtrResult<FunctionNode>(
         true, FunctionNode::create(node->name(), extract(arg_results),
                                    extract(define_results), node->axes_info(),
-                                   extract(body_result)));
+                                   extract(body_result), node->is_parallel()));
   }
 
   PtrResult<BinopNode> completeBinop(std::shared_ptr<BinopNode> node,
@@ -428,7 +437,8 @@ class PathCopyVisitor {
       return Result<VarDeclNode>(false, node);
     }
 
-    return Result<VarDeclNode>(true, VarDeclNode(*(var_result.node)));
+    return Result<VarDeclNode>(true,
+                               VarDeclNode(*(var_result.node), node.is_dst()));
   }
 
   Result<VarLocNode> completeVarLoc(

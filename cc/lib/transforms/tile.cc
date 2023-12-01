@@ -33,7 +33,8 @@ class TileRewriter : public PathCopyVisitor<TileRewriter> {
     axes_info[axis_].tiles++;
     return PtrResult<FunctionNode>(
         true, FunctionNode::create(node->name(), extract(arg_results), defines,
-                                   axes_info, extract(body_result)));
+                                   axes_info, extract(body_result),
+                                   node->is_parallel()));
   }
 
   PtrResult<LoopNode> completeLoop(
@@ -84,6 +85,7 @@ class TileRewriter : public PathCopyVisitor<TileRewriter> {
 };
 
 TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
+  static constexpr size_t kMaxTileDepth = 3;
   if (node.kind() != IrNode::Kind::kLoop) {
     return errorMsg("`%s` Expected `kLoop`, got `%s`", TileTransform::kName,
                     str(node.kind()).c_str());
@@ -93,6 +95,13 @@ TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
   const size_t loop_stride = eval_stride(ir, loop_node);
   const size_t proposed_tile_size = loop_stride == 1 ? 4 : loop_stride * 2;
   ASSERT(proposed_tile_size > 0 && proposed_tile_size % 4 == 0);
+
+  const size_t loop_axis = loop_node.induction_var().axis();
+  if (ir->axis_tiles(loop_axis) >= kMaxTileDepth) {
+    return errorMsg("`%s` Already reached max tile depth of `%zu`",
+                    TileTransform::kName, str(node.kind()).c_str(),
+                    kMaxTileDepth);
+  }
 
   return checkCommonTileConditions(ir, loop_node, proposed_tile_size,
                                    TileTransform::kName);

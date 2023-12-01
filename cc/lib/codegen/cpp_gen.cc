@@ -1,5 +1,7 @@
 #include "peachy_ir_agent/codegen/cpp_gen.h"
 
+#include <algorithm>
+#include <numeric>
 #include <sstream>
 
 #include "peachy_ir_agent/base.h"
@@ -8,14 +10,50 @@
 namespace peachyir {
 namespace {
 
+/*
+ * Find parallel depth.
+ */
+class ParallelDepthFinder : public IrVisitor<ParallelDepthFinder> {
+ public:
+  using IrVisitor<ParallelDepthFinder>::visit;
+  ParallelDepthFinder() : seen_parallel_(false), loop_depth_(0) {}
+  ~ParallelDepthFinder() = default;
+
+  void visitLoop(const LoopNode& node) {
+    if (!seen_parallel_) {
+      loop_depth_++;
+    }
+
+    seen_parallel_ = seen_parallel_ || node.is_parallel();
+  }
+
+  static int find(FunctionNodePtr ir) {
+    ParallelDepthFinder visitor;
+    visitor.visit(ir);
+    return visitor.loop_depth_;
+  }
+
+ private:
+  bool seen_parallel_;
+  int loop_depth_;
+};
+
+/*
+ * Generate C++ code from IR.
+ */
 class CppGenVisitor : public IrVisitor<CppGenVisitor> {
  public:
   using IrVisitor<CppGenVisitor>::visit;
-  CppGenVisitor() : indent_depth_(0) {}
+  CppGenVisitor(int parallel_depth)
+      : indent_depth_(0),
+        loop_depth_(0),
+        is_parallel_(false),
+        parallel_depth_(parallel_depth) {}
   ~CppGenVisitor() = default;
 
   // Need to override traversal logic for these nodes.
   void visit(const FunctionNode& node) {
+    is_parallel_ = node.is_parallel();
     ss_ << indents() << "void " << node.name() << " (";
     for (int i = 0; i < node.args().size(); ++i) {
       visit(node.args()[i]);
@@ -61,8 +99,11 @@ class CppGenVisitor : public IrVisitor<CppGenVisitor> {
   }
 
   void visit(const LoopNode& node) {
-    if (node.is_parallel()) {
-      ss_ << "#pragma omp parallel for\n";
+    if (loop_depth_ == 0 && is_parallel_ && parallel_depth_ == 1) {
+      ss_ << "#pragma omp parallel for schedule(static)\n";
+    } else if (loop_depth_ == 0 && is_parallel_) {
+      ss_ << "#pragma omp parallel for collapse(" << parallel_depth_
+          << ") schedule(static)\n";
     }
 
     std::string ivar_str = cc_str(node.induction_var());
@@ -73,7 +114,9 @@ class CppGenVisitor : public IrVisitor<CppGenVisitor> {
     ss_ << ivar_str << " += " << cc_str(node.stride());
     ss_ << ") {\n";
     ++indent_depth_;
+    ++loop_depth_;
     visit(node.body());
+    --loop_depth_;
     --indent_depth_;
     ss_ << indents() << "}\n";
   }
@@ -123,7 +166,7 @@ class CppGenVisitor : public IrVisitor<CppGenVisitor> {
     };
 
     if (current_scope_ == Scope::kDecl) {
-      ss_ << "float* restrict " << node.name() << " /* "
+      ss_ << "float* __restrict " << node.name() << " /* "
           << shape_str(node.shape()) << " */";
     } else {
       ss_ << node.name();
@@ -136,8 +179,8 @@ class CppGenVisitor : public IrVisitor<CppGenVisitor> {
   void visitUnop(const UnopNode& node) { ss_ << node.op(); }
   void visitConst(const ConstNode& node) { ss_ << node; }
 
-  static std::string gen(FunctionNodePtr ir) {
-    CppGenVisitor visitor;
+  static std::string gen(FunctionNodePtr ir, int parallel_depth) {
+    CppGenVisitor visitor(parallel_depth);
     visitor.visit(ir);
     return visitor.ss_.str();
   }
@@ -239,11 +282,101 @@ class CppGenVisitor : public IrVisitor<CppGenVisitor> {
   std::stringstream ss_;
   int indent_depth_;
   Scope current_scope_;
+  int loop_depth_;
+  bool is_parallel_;
+  const int parallel_depth_;
 };
 
 }  // namespace
 
 /* static */ std::string CppGen::apply(FunctionNodePtr ir) {
-  return CppGenVisitor::gen(ir);
+  int parallel_depth = ParallelDepthFinder::find(ir);
+  return CppGenVisitor::gen(ir, parallel_depth);
+}
+
+/* static */ std::string CppAllocGen::apply(FunctionNodePtr ir) {
+  std::stringstream ss;
+  for (const VarDeclNode& var_decl : ir->args()) {
+    if (var_decl.var().kind() != IrNode::Kind::kTensorVar) {
+      continue;
+    }
+
+    const TensorVarNode& var =
+        static_cast<const TensorVarNode&>(var_decl.var());
+    const std::vector<size_t> shape = var.shape();
+    const size_t buf_size = std::accumulate(shape.begin(), shape.end(), 1,
+                                            std::multiplies<size_t>());
+
+    ss << "float* " << var.name() << " = static_cast<float*>(aligned_alloc(32, "
+       << buf_size * sizeof(float) << "));\n";
+  }
+
+  return ss.str();
+}
+
+/* static */ std::string CppInvokeGen::apply(FunctionNodePtr ir) {
+  std::stringstream ss;
+  ss << ir->name() << "(";
+  for (int i = 0; i < ir->args().size(); ++i) {
+    const VarDeclNode& var_decl = ir->args()[i];
+    ss << var_decl.var().name();
+    if (i < ir->args().size() - 1) ss << ", ";
+  }
+  ss << ");\n";
+
+  return ss.str();
+}
+
+/* static */ std::string CppInitGen::apply(FunctionNodePtr ir) {
+  std::stringstream ss;
+  for (int i = 0; i < ir->args().size(); ++i) {
+    const VarDeclNode& var_decl = ir->args()[i];
+    if (var_decl.var().kind() != IrNode::Kind::kTensorVar) {
+      continue;
+    }
+
+    const TensorVarNode& var =
+        static_cast<const TensorVarNode&>(var_decl.var());
+    const size_t buf_size = var.size();
+    const std::string& name = var_decl.var().name();
+    const std::string begin_it = name;
+    const std::string end_it = name + " + " + std::to_string(buf_size);
+    if (var_decl.is_dst()) {
+      // is a write-to buffer.
+      ss << "std::fill(" << begin_it << ", " << end_it << ", 0);\n";
+    } else {
+      // is a read-from buffer.
+      ss << "std::transform(" << begin_it << ", " << end_it << ", " << begin_it
+         << ", [](const float x) { return static_cast<float>(rand()) / "
+            "RAND_MAX; });\n";
+    }
+  }
+
+  return ss.str();
+}
+
+/* static */ std::string CppResetGen::apply(FunctionNodePtr ir) {
+  std::stringstream ss;
+  for (int i = 0; i < ir->args().size(); ++i) {
+    const VarDeclNode& var_decl = ir->args()[i];
+    if (var_decl.var().kind() != IrNode::Kind::kTensorVar) {
+      continue;
+    }
+
+    const TensorVarNode& var =
+        static_cast<const TensorVarNode&>(var_decl.var());
+    const size_t buf_size = var.size();
+    const std::string& name = var_decl.var().name();
+    const std::string begin_it = name;
+    const std::string end_it = name + " + " + std::to_string(buf_size);
+    if (var_decl.is_dst()) {
+      // is a write-to buffer.
+      ss << "std::fill(" << begin_it << ", " << end_it << ", 0);\n";
+    }
+
+    // Do not reset read-from buffers.
+  }
+
+  return ss.str();
 }
 }  // namespace peachyir

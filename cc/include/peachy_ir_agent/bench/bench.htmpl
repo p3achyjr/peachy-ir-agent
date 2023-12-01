@@ -1,0 +1,31 @@
+#include <chrono>
+#include <cstddef>
+#include <fstream>
+
+static constexpr size_t kNumRuns = 100;
+static constexpr char kResFilename[] = "/tmp/peachyir.prof";
+
+%KERNEL_DEF%
+
+int main(int argc, char** argv) {
+  %ALLOCATE_KERNELS%
+  
+  double avg_runtime_ns = 0.0;
+  for (int run = 1; run <= kNumRuns; ++run) {
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    %KERNEL_INVOKE%
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto runtime_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(start - end)
+            .count();
+    double total_runtime = (run - 1) * avg_runtime_ns + runtime_ns;
+    avg_runtime_ns = total_runtime / static_cast<double>(run); 
+  }
+
+  std::ofstream file(kResFilename);
+  file << avg_runtime_ns;
+  file.close();
+  return 0;
+}

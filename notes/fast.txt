@@ -1,0 +1,28 @@
+void matmul (float* __restrict C /* (1024, 1024) */, float* __restrict A /* (1024, 1024) */, float* __restrict B /* (1024, 1024) */) {
+  static constexpr size_t D0 = 4;
+  static constexpr size_t D1 = 4;
+  static constexpr size_t D2 = 4;
+  static constexpr size_t D3 = 8;
+  static constexpr size_t D4 = 16;
+  for (size_t i_T1 = 0; i_T1 < 1024; i_T1 += D4) {
+    for (size_t j_T0 = 0; j_T0 < 1024; j_T0 += D0) {
+      for (size_t i_T0 = i_T1; i_T0 < i_T1 + D4; i_T0 += D1) {
+        for (size_t i = i_T0; i < i_T0 + D1; i += 1) {
+          for (size_t k_T1 = 0; k_T1 < 1024; k_T1 += D3) {
+            for (size_t k_T0 = k_T1; k_T0 < k_T1 + D3; k_T0 += D2) {
+              for (size_t j = j_T0; j < j_T0 + D0; j += 1) {
+                float C_i_j_0 = 0;
+                for (size_t k = k_T0; k < k_T0 + D2; k += 1) {
+                  C_i_j_0 = C_i_j_0 + A[(1024 * i) + k] * B[(1024 * k) + j];
+                }
+                C[(1024 * i) + j] = C_i_j_0;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+6.56102e+06

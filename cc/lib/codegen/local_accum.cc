@@ -78,7 +78,8 @@ class AccumWriteFinder : public IrVisitor<AccumWriteFinder> {
 class LocalAccumRewriter : public PathCopyVisitor<LocalAccumRewriter> {
  public:
   LocalAccumRewriter(
-      const std::unordered_map<TensorVarRefNode, int>& tvars_need_accum) {
+      const std::unordered_map<TensorVarRefNode, int>& tvars_need_accum)
+      : is_parallel_(false), seen_parallel_(false) {
     auto tvar_name = [](const TensorVarRefNode& tvar) {
       std::string tvar_local_name;
       tvar_local_name += tvar.name();
@@ -109,8 +110,13 @@ class LocalAccumRewriter : public PathCopyVisitor<LocalAccumRewriter> {
     }
   }
 
+  void visitFunction(const FunctionNode& node) {
+    is_parallel_ = node.is_parallel();
+  }
+
   void visitLoop(const LoopNode& node) {
     enclosing_ivars_.emplace_back(node.induction_var());
+    seen_parallel_ = seen_parallel_ || node.is_parallel();
   }
 
   PtrResult<VarExprNode> completeVarExpr(
@@ -140,6 +146,15 @@ class LocalAccumRewriter : public PathCopyVisitor<LocalAccumRewriter> {
       UniquePtrResult<InductionVarNode>&& induction_var_result,
       PtrResult<StmtNode> body_result) {
     enclosing_ivars_.pop_back();
+
+    // Check if inserting accumulator here will cause accumulator to not be
+    // thread-local.
+    bool is_non_thread_local =
+        is_parallel_ && !seen_parallel_ && !node->is_parallel();
+    if (is_non_thread_local) {
+      return PathCopyVisitor<LocalAccumRewriter>::completeLoop(
+          node, std::move(induction_var_result), body_result);
+    }
 
     // Check if we should insert any local accumulators here.
     std::vector<TensorVarRefNode> tvars_need_accum_here;
@@ -236,6 +251,9 @@ class LocalAccumRewriter : public PathCopyVisitor<LocalAccumRewriter> {
   }
 
  private:
+  // need these booleans to prevent inserting non thread-local accumulators.
+  bool is_parallel_;
+  bool seen_parallel_;
   std::unordered_map<TensorVarRefNode, int> tvar_index_;
 
   // Map from tensor write to local accumulator name.

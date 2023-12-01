@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <numeric>
 #include <variant>
 #include <vector>
 
@@ -173,7 +174,7 @@ class FunctionNode : public IrNode {
                                 DefineVec&& defines,
                                 std::vector<AxisInfo> axes_info,
                                 std::shared_ptr<StmtNode> body,
-                                bool is_parallel = false) {
+                                bool is_parallel) {
     return std::make_shared<FunctionNode>(name, std::forward<VarDeclVec>(args),
                                           std::forward<DefineVec>(defines),
                                           axes_info, body, is_parallel);
@@ -264,6 +265,11 @@ class TensorVarNode : public VarNode {
   ~TensorVarNode() override = default;
 
   DECLARE_VEC_FIELD(size_t, shape);
+
+  inline size_t size() const {
+    return std::accumulate(shape_.begin(), shape_.end(), 1,
+                           std::multiplies<size_t>());
+  }
 
   std::unique_ptr<VarNode> clone() const override {
     return std::make_unique<TensorVarNode>(*this);
@@ -376,13 +382,17 @@ class VarDeclNode : public IrNode {
       typename VarT,
       std::enable_if_t<std::is_convertible_v<std::decay_t<VarT>*, VarNode*>,
                        bool> = true>
-  VarDeclNode(VarT&& var) : IrNode(Kind::kVarDecl), var_(var.clone()) {}
+  VarDeclNode(VarT&& var, bool is_dst = false)
+      : IrNode(Kind::kVarDecl), var_(var.clone()), is_dst_(is_dst) {}
   ~VarDeclNode() override = default;
 
   VarDeclNode(const VarDeclNode& other)
-      : IrNode(Kind::kVarDecl), var_(other.var().clone()) {}
+      : IrNode(Kind::kVarDecl),
+        var_(other.var().clone()),
+        is_dst_(other.is_dst()) {}
 
   DECLARE_UNIQUE_PTR_FIELD(VarNode, var);
+  DECLARE_FIELD(bool, is_dst);  // Whether this is an output buffer.
 };
 
 /*

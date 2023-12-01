@@ -3,6 +3,7 @@
 #include "peachy_ir_agent/codegen/critical_section.h"
 
 #include "doctest/doctest.h"
+#include "peachy_ir_agent/codegen/local_accum.h"
 #include "peachy_ir_agent/ir.h"
 #include "peachy_ir_agent/kernels/matmul.h"
 #include "peachy_ir_agent/transforms/parallel.h"
@@ -65,6 +66,31 @@ TEST_CASE("Test Parallel Critical Section") {
            kExpectedStr);
 }
 
+TEST_CASE("Test Parallel Local Accum Sync") {
+  static const std::string kExpectedStr =
+      "def matmul (C: (1024, 1024), A: (1024, 512), B: (512, 1024)):\n"
+      "  | axis(0) | = 1024, |T| = 0\n"
+      "  | axis(1) | = 1024, |T| = 0\n"
+      "  | axis(2) | = 512, |T| = 0\n"
+      "  loop i: axis(0) in (0, 1024) 1:\n"
+      "    loop j: axis(1) in (0, 1024) 1:\n"
+      "      let C_i_j_0: float = 0;\n"
+      "      parallel k: axis(2) in (0, 512) 1:\n"
+      "        critical:\n"
+      "          C_i_j_0 = C_i_j_0 + A[i, k] * B[k, j];\n"
+      "      C[i, j] = C_i_j_0;\n";
+  FunctionNodePtr matmul_ir = kernels::matmulIr(1024, 1024, 512, "matmul");
+  LoopNodePtr kloop = std::static_pointer_cast<LoopNode>(
+      std::static_pointer_cast<LoopNode>(
+          std::static_pointer_cast<LoopNode>(matmul_ir->body())->body())
+          ->body());
+  FunctionNodePtr parallel_ir = ParallelTransform::apply(matmul_ir, *kloop).ir;
+  FunctionNodePtr local_accum_ir = LocalAccumTransform::apply(parallel_ir);
+
+  CHECK_EQ(IrPrinter::print(CriticalSectionTransform::apply(local_accum_ir)),
+           kExpectedStr);
+}
+
 TEST_CASE("Test Scalar Critical") {
   static const std::string kExpectedStr =
       "def f (x: float):\n"
@@ -81,8 +107,9 @@ TEST_CASE("Test Scalar Critical") {
     LoopNodePtr loop_node =
         LoopNode::create(InductionVarNode("i", 0), 0, 1024, 1, inner_write,
                          true /* is_parallel */);
-    return FunctionNode::create("f", {VarDeclNode(x_var)}, {}, {{1024, 0}},
-                                loop_node);
+    return FunctionNode::create("f", {VarDeclNode(x_var, true)}, {},
+                                {{1024, 0}}, loop_node,
+                                false /* is_parallel */);
   };
 
   FunctionNodePtr ir = make_ir();

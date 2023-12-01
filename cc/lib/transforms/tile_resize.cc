@@ -56,7 +56,8 @@ TransformResult canApply(FunctionNodePtr ir, const IrNode& node) {
                               : define;
                  });
 
-  return TransformResult(FunctionNode::create(
-      ir->name(), ir->args(), new_defines, ir->axes_info(), ir->body()));
+  return TransformResult(FunctionNode::create(ir->name(), ir->args(),
+                                              new_defines, ir->axes_info(),
+                                              ir->body(), ir->is_parallel()));
 }
 }  // namespace peachyir
